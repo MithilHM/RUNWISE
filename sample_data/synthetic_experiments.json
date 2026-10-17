@@ -1,0 +1,1688 @@
+[
+  {
+    "id": "exp_001",
+    "project_id": "project_demo",
+    "name": "baseline_xgboost",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_fraud",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 120.0,
+    "compute_cost_gpu_hours": 0.8,
+    "random_seed": 42,
+    "configuration": {
+      "max_depth": 4,
+      "learning_rate": 0.1,
+      "n_estimators": 100,
+      "subsample": 0.8
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.912,
+        "direction": "maximize",
+        "evaluation_split": "validation",
+        "evaluation_protocol": "stratified_5fold"
+      },
+      {
+        "name": "val_loss",
+        "value": 0.284,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Baseline gradient boosted trees on tabular fraud dataset v1"
+  },
+  {
+    "id": "exp_002",
+    "project_id": "project_demo",
+    "name": "tuned_xgboost_depth6",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_fraud",
+    "dataset_version": "v1",
+    "parent_experiment_id": "exp_001",
+    "status": "completed",
+    "duration_seconds": 210.0,
+    "compute_cost_gpu_hours": 1.2,
+    "random_seed": 42,
+    "configuration": {
+      "max_depth": 6,
+      "learning_rate": 0.05,
+      "n_estimators": 200,
+      "subsample": 0.85
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.938,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "val_loss",
+        "value": 0.215,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Tuned tree depth based on exp_001 baseline"
+  },
+  {
+    "id": "exp_003",
+    "project_id": "project_demo",
+    "name": "distilled_fast_tree",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_fraud",
+    "dataset_version": "v1",
+    "parent_experiment_id": "exp_002",
+    "status": "completed",
+    "duration_seconds": 95.0,
+    "compute_cost_gpu_hours": 0.5,
+    "random_seed": 42,
+    "configuration": {
+      "max_depth": 3,
+      "distillation_source": "exp_002",
+      "n_estimators": 80
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.925,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Compressed model distilled from exp_002 for latency optimization"
+  },
+  {
+    "id": "exp_control",
+    "project_id": "project_demo",
+    "name": "vision_resnet_classifier",
+    "model_family": "cnn",
+    "dataset_name": "satellite_imagery",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 1800.0,
+    "compute_cost_gpu_hours": 2.5,
+    "random_seed": 101,
+    "configuration": {
+      "backbone": "resnet50",
+      "batch_size": 64,
+      "optimizer": "adamw",
+      "lr": 0.0003
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.884,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Control computer vision experiment completely isolated from tabular dataset"
+  },
+  {
+    "id": "exp_005",
+    "project_id": "project_demo",
+    "name": "distilbert_v3",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 210,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "distilbert",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.8,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.45,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 5 evaluating distilbert on nlp_sentiment:v3"
+  },
+  {
+    "id": "exp_006",
+    "project_id": "project_demo",
+    "name": "convnext_tiny_v1",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 252,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "convnext_tiny",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.72,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.32,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 6 evaluating convnext_tiny on image_cifar:v1"
+  },
+  {
+    "id": "exp_007",
+    "project_id": "project_demo",
+    "name": "catboost_classifier_v2",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 294,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "catboost_classifier",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.89,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.49,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 7 evaluating catboost_classifier on tabular_sales:v2"
+  },
+  {
+    "id": "exp_008",
+    "project_id": "project_demo",
+    "name": "extra_trees_v3",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 336,
+    "parent_experiment_id": "exp_006",
+    "configuration": {
+      "architecture": "extra_trees",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.81,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.36,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 8 evaluating extra_trees on genomics_microarray:v3"
+  },
+  {
+    "id": "exp_009",
+    "project_id": "project_demo",
+    "name": "ridge_regression_v1",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 3600,
+    "compute_cost_gpu_hours": 1.0,
+    "random_seed": 378,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "ridge_regression",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.73,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.23,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 9 evaluating ridge_regression on housing_prices:v1"
+  },
+  {
+    "id": "exp_010",
+    "project_id": "project_demo",
+    "name": "roberta_base_v2",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v2",
+    "status": "failed",
+    "duration_seconds": 5040,
+    "compute_cost_gpu_hours": 1.4,
+    "random_seed": 420,
+    "parent_experiment_id": "exp_008",
+    "configuration": {
+      "architecture": "roberta_base",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.9,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.4,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 10 evaluating roberta_base on nlp_sentiment:v2"
+  },
+  {
+    "id": "exp_011",
+    "project_id": "project_demo",
+    "name": "mobilenet_v3_v3",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 6480,
+    "compute_cost_gpu_hours": 1.8,
+    "random_seed": 462,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "mobilenet_v3",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.82,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.27,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 11 evaluating mobilenet_v3 on image_cifar:v3"
+  },
+  {
+    "id": "exp_012",
+    "project_id": "project_demo",
+    "name": "lightgbm_regressor_v1",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 504,
+    "parent_experiment_id": "exp_010",
+    "configuration": {
+      "architecture": "lightgbm_regressor",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.74,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.44,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 12 evaluating lightgbm_regressor on tabular_sales:v1"
+  },
+  {
+    "id": "exp_013",
+    "project_id": "project_demo",
+    "name": "rf_shallow_v2",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 546,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "rf_shallow",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.91,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.31,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 13 evaluating rf_shallow on genomics_microarray:v2"
+  },
+  {
+    "id": "exp_014",
+    "project_id": "project_demo",
+    "name": "logistic_reg_v3",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 588,
+    "parent_experiment_id": "exp_012",
+    "configuration": {
+      "architecture": "logistic_reg",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.83,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.48,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 14 evaluating logistic_reg on housing_prices:v3"
+  },
+  {
+    "id": "exp_015",
+    "project_id": "project_demo",
+    "name": "gpt2_small_v1",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 630,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "gpt2_small",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.75,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.35,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 15 evaluating gpt2_small on nlp_sentiment:v1"
+  },
+  {
+    "id": "exp_016",
+    "project_id": "project_demo",
+    "name": "efficientnet_b0_v2",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 3600,
+    "compute_cost_gpu_hours": 1.0,
+    "random_seed": 672,
+    "parent_experiment_id": "exp_014",
+    "configuration": {
+      "architecture": "efficientnet_b0",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.92,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.22,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 16 evaluating efficientnet_b0 on image_cifar:v2"
+  },
+  {
+    "id": "exp_017",
+    "project_id": "project_demo",
+    "name": "catboost_classifier_v3",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 5040,
+    "compute_cost_gpu_hours": 1.4,
+    "random_seed": 714,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "catboost_classifier",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.84,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.39,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 17 evaluating catboost_classifier on tabular_sales:v3"
+  },
+  {
+    "id": "exp_018",
+    "project_id": "project_demo",
+    "name": "rf_deep_v1",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 6480,
+    "compute_cost_gpu_hours": 1.8,
+    "random_seed": 756,
+    "parent_experiment_id": "exp_016",
+    "configuration": {
+      "architecture": "rf_deep",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.76,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.26,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 18 evaluating rf_deep on genomics_microarray:v1"
+  },
+  {
+    "id": "exp_019",
+    "project_id": "project_demo",
+    "name": "elastic_net_v2",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 798,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "elastic_net",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.93,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.43,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 19 evaluating elastic_net on housing_prices:v2"
+  },
+  {
+    "id": "exp_020",
+    "project_id": "project_demo",
+    "name": "bert_tiny_v3",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v3",
+    "status": "failed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 840,
+    "parent_experiment_id": "exp_018",
+    "configuration": {
+      "architecture": "bert_tiny",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.85,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.3,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 20 evaluating bert_tiny on nlp_sentiment:v3"
+  },
+  {
+    "id": "exp_021",
+    "project_id": "project_demo",
+    "name": "convnext_tiny_v1",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 882,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "convnext_tiny",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.77,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.47,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 21 evaluating convnext_tiny on image_cifar:v1"
+  },
+  {
+    "id": "exp_022",
+    "project_id": "project_demo",
+    "name": "lightgbm_regressor_v2",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 924,
+    "parent_experiment_id": "exp_020",
+    "configuration": {
+      "architecture": "lightgbm_regressor",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.94,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.34,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 22 evaluating lightgbm_regressor on tabular_sales:v2"
+  },
+  {
+    "id": "exp_023",
+    "project_id": "project_demo",
+    "name": "extra_trees_v3",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 3600,
+    "compute_cost_gpu_hours": 1.0,
+    "random_seed": 966,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "extra_trees",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.86,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.21,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 23 evaluating extra_trees on genomics_microarray:v3"
+  },
+  {
+    "id": "exp_024",
+    "project_id": "project_demo",
+    "name": "ridge_regression_v1",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 5040,
+    "compute_cost_gpu_hours": 1.4,
+    "random_seed": 8,
+    "parent_experiment_id": "exp_022",
+    "configuration": {
+      "architecture": "ridge_regression",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.78,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.38,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 24 evaluating ridge_regression on housing_prices:v1"
+  },
+  {
+    "id": "exp_025",
+    "project_id": "project_demo",
+    "name": "distilbert_v2",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 6480,
+    "compute_cost_gpu_hours": 1.8,
+    "random_seed": 50,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "distilbert",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.7,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.25,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 25 evaluating distilbert on nlp_sentiment:v2"
+  },
+  {
+    "id": "exp_026",
+    "project_id": "project_demo",
+    "name": "mobilenet_v3_v3",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 92,
+    "parent_experiment_id": "exp_024",
+    "configuration": {
+      "architecture": "mobilenet_v3",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.87,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.42,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 26 evaluating mobilenet_v3 on image_cifar:v3"
+  },
+  {
+    "id": "exp_027",
+    "project_id": "project_demo",
+    "name": "catboost_classifier_v1",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 134,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "catboost_classifier",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.79,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.29,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 27 evaluating catboost_classifier on tabular_sales:v1"
+  },
+  {
+    "id": "exp_028",
+    "project_id": "project_demo",
+    "name": "rf_shallow_v2",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 176,
+    "parent_experiment_id": "exp_026",
+    "configuration": {
+      "architecture": "rf_shallow",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.71,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.46,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 28 evaluating rf_shallow on genomics_microarray:v2"
+  },
+  {
+    "id": "exp_029",
+    "project_id": "project_demo",
+    "name": "logistic_reg_v3",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 218,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "logistic_reg",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.88,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.33,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 29 evaluating logistic_reg on housing_prices:v3"
+  },
+  {
+    "id": "exp_030",
+    "project_id": "project_demo",
+    "name": "roberta_base_v1",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v1",
+    "status": "failed",
+    "duration_seconds": 3600,
+    "compute_cost_gpu_hours": 1.0,
+    "random_seed": 260,
+    "parent_experiment_id": "exp_028",
+    "configuration": {
+      "architecture": "roberta_base",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.8,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.5,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 30 evaluating roberta_base on nlp_sentiment:v1"
+  },
+  {
+    "id": "exp_031",
+    "project_id": "project_demo",
+    "name": "efficientnet_b0_v2",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 5040,
+    "compute_cost_gpu_hours": 1.4,
+    "random_seed": 302,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "efficientnet_b0",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.72,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.37,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 31 evaluating efficientnet_b0 on image_cifar:v2"
+  },
+  {
+    "id": "exp_032",
+    "project_id": "project_demo",
+    "name": "lightgbm_regressor_v3",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 6480,
+    "compute_cost_gpu_hours": 1.8,
+    "random_seed": 344,
+    "parent_experiment_id": "exp_030",
+    "configuration": {
+      "architecture": "lightgbm_regressor",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.89,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.24,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 32 evaluating lightgbm_regressor on tabular_sales:v3"
+  },
+  {
+    "id": "exp_033",
+    "project_id": "project_demo",
+    "name": "rf_deep_v1",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 386,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "rf_deep",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.81,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.41,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 33 evaluating rf_deep on genomics_microarray:v1"
+  },
+  {
+    "id": "exp_034",
+    "project_id": "project_demo",
+    "name": "elastic_net_v2",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 428,
+    "parent_experiment_id": "exp_032",
+    "configuration": {
+      "architecture": "elastic_net",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.73,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.28,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 34 evaluating elastic_net on housing_prices:v2"
+  },
+  {
+    "id": "exp_035",
+    "project_id": "project_demo",
+    "name": "gpt2_small_v3",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 470,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "gpt2_small",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.9,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.45,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 35 evaluating gpt2_small on nlp_sentiment:v3"
+  },
+  {
+    "id": "exp_036",
+    "project_id": "project_demo",
+    "name": "convnext_tiny_v1",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 512,
+    "parent_experiment_id": "exp_034",
+    "configuration": {
+      "architecture": "convnext_tiny",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.82,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.32,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 36 evaluating convnext_tiny on image_cifar:v1"
+  },
+  {
+    "id": "exp_037",
+    "project_id": "project_demo",
+    "name": "catboost_classifier_v2",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 3600,
+    "compute_cost_gpu_hours": 1.0,
+    "random_seed": 554,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "catboost_classifier",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.74,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.49,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 37 evaluating catboost_classifier on tabular_sales:v2"
+  },
+  {
+    "id": "exp_038",
+    "project_id": "project_demo",
+    "name": "extra_trees_v3",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 5040,
+    "compute_cost_gpu_hours": 1.4,
+    "random_seed": 596,
+    "parent_experiment_id": "exp_036",
+    "configuration": {
+      "architecture": "extra_trees",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.91,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.36,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 38 evaluating extra_trees on genomics_microarray:v3"
+  },
+  {
+    "id": "exp_039",
+    "project_id": "project_demo",
+    "name": "ridge_regression_v1",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 6480,
+    "compute_cost_gpu_hours": 1.8,
+    "random_seed": 638,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "ridge_regression",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.83,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.23,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 39 evaluating ridge_regression on housing_prices:v1"
+  },
+  {
+    "id": "exp_040",
+    "project_id": "project_demo",
+    "name": "bert_tiny_v2",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v2",
+    "status": "failed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 680,
+    "parent_experiment_id": "exp_038",
+    "configuration": {
+      "architecture": "bert_tiny",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.75,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.4,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 40 evaluating bert_tiny on nlp_sentiment:v2"
+  },
+  {
+    "id": "exp_041",
+    "project_id": "project_demo",
+    "name": "mobilenet_v3_v3",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 722,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "mobilenet_v3",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.92,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.27,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 41 evaluating mobilenet_v3 on image_cifar:v3"
+  },
+  {
+    "id": "exp_042",
+    "project_id": "project_demo",
+    "name": "lightgbm_regressor_v1",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 764,
+    "parent_experiment_id": "exp_040",
+    "configuration": {
+      "architecture": "lightgbm_regressor",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.84,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.44,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 42 evaluating lightgbm_regressor on tabular_sales:v1"
+  },
+  {
+    "id": "exp_043",
+    "project_id": "project_demo",
+    "name": "rf_shallow_v2",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 806,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "rf_shallow",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.76,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.31,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 43 evaluating rf_shallow on genomics_microarray:v2"
+  },
+  {
+    "id": "exp_044",
+    "project_id": "project_demo",
+    "name": "logistic_reg_v3",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 3600,
+    "compute_cost_gpu_hours": 1.0,
+    "random_seed": 848,
+    "parent_experiment_id": "exp_042",
+    "configuration": {
+      "architecture": "logistic_reg",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.93,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.48,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 44 evaluating logistic_reg on housing_prices:v3"
+  },
+  {
+    "id": "exp_045",
+    "project_id": "project_demo",
+    "name": "distilbert_v1",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 5040,
+    "compute_cost_gpu_hours": 1.4,
+    "random_seed": 890,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "distilbert",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.85,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.35,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 45 evaluating distilbert on nlp_sentiment:v1"
+  },
+  {
+    "id": "exp_046",
+    "project_id": "project_demo",
+    "name": "efficientnet_b0_v2",
+    "model_family": "cnn",
+    "dataset_name": "image_cifar",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 6480,
+    "compute_cost_gpu_hours": 1.8,
+    "random_seed": 932,
+    "parent_experiment_id": "exp_044",
+    "configuration": {
+      "architecture": "efficientnet_b0",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.77,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.22,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 46 evaluating efficientnet_b0 on image_cifar:v2"
+  },
+  {
+    "id": "exp_047",
+    "project_id": "project_demo",
+    "name": "catboost_classifier_v3",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v3",
+    "status": "completed",
+    "duration_seconds": 7920,
+    "compute_cost_gpu_hours": 2.2,
+    "random_seed": 974,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "catboost_classifier",
+      "learning_rate": 1e-05,
+      "batch_size": 64,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.94,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.39,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 47 evaluating catboost_classifier on tabular_sales:v3"
+  },
+  {
+    "id": "exp_048",
+    "project_id": "project_demo",
+    "name": "rf_deep_v1",
+    "model_family": "random_forest",
+    "dataset_name": "genomics_microarray",
+    "dataset_version": "v1",
+    "status": "completed",
+    "duration_seconds": 9360,
+    "compute_cost_gpu_hours": 2.6,
+    "random_seed": 16,
+    "parent_experiment_id": "exp_046",
+    "configuration": {
+      "architecture": "rf_deep",
+      "learning_rate": 0.01,
+      "batch_size": 16,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.86,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.26,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 48 evaluating rf_deep on genomics_microarray:v1"
+  },
+  {
+    "id": "exp_049",
+    "project_id": "project_demo",
+    "name": "elastic_net_v2",
+    "model_family": "linear",
+    "dataset_name": "housing_prices",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 720,
+    "compute_cost_gpu_hours": 0.2,
+    "random_seed": 58,
+    "parent_experiment_id": null,
+    "configuration": {
+      "architecture": "elastic_net",
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "sgd"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.78,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.43,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 49 evaluating elastic_net on housing_prices:v2"
+  },
+  {
+    "id": "exp_050",
+    "project_id": "project_demo",
+    "name": "roberta_base_v3",
+    "model_family": "transformer",
+    "dataset_name": "nlp_sentiment",
+    "dataset_version": "v3",
+    "status": "failed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 100,
+    "parent_experiment_id": "exp_048",
+    "configuration": {
+      "architecture": "roberta_base",
+      "learning_rate": 0.0001,
+      "batch_size": 48,
+      "optimizer": "adam"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.7,
+        "direction": "maximize",
+        "evaluation_split": "validation"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.3,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Synthetic run 50 evaluating roberta_base on nlp_sentiment:v3"
+  }
+]

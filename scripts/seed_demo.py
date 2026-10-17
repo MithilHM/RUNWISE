@@ -1,0 +1,66 @@
+"""
+Seed script to populate FalkorDB with synthetic experiment data and demonstrate
+lineage and correction propagation.
+"""
+
+import sys
+import os
+import logging
+
+# Ensure backend and project root are on sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from app.core.config import settings
+from app.graph.client import graph_client
+from app.graph.schema import initialize_schema
+from app.services.ingestion import IngestionService
+from app.services.impact_analysis import ImpactAnalysisService
+from app.services.seed_data import generate_synthetic_experiments
+from app.models.contracts import CorrectionCreate
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("seed")
+
+
+def run_seed():
+    logger.info(f"Connecting to FalkorDB on {settings.FALKORDB_HOST}:{settings.FALKORDB_PORT} (graph: {settings.FALKORDB_GRAPH})...")
+    health = graph_client.check_health()
+    if health.get("status") != "healthy":
+        logger.error(f"Cannot connect to FalkorDB: {health}")
+        sys.exit(1)
+
+    logger.info("Initializing graph schema and indices...")
+    graph = graph_client.get_graph()
+    init_res = initialize_schema(graph)
+    logger.info(f"Schema initialized: {init_res}")
+
+    logger.info("Generating 50 synthetic experiments across multiple model families...")
+    project_id = "project_demo"
+    experiments = generate_synthetic_experiments(project_id=project_id, total=50)
+
+    ingestion = IngestionService()
+    logger.info(f"Ingesting {len(experiments)} experiments into FalkorDB...")
+    summary = ingestion.ingest_records(experiments, project_id=project_id, project_name="RUNWISE Demonstration Project")
+    logger.info(f"Ingestion complete: {summary.imported} imported, {summary.skipped} skipped, {summary.failed} failed.")
+
+    # Demonstration of correction impact propagation
+    logger.info("\n--- Demonstrating Evidence Correction Impact Workflow ---")
+    impact_svc = ImpactAnalysisService()
+    corr = CorrectionCreate(
+        source_id="tabular_fraud_v1",
+        source_type="dataset_version",
+        description="Data leakage identified between train and validation splits in tabular_fraud v1.",
+        created_by="researcher_alice"
+    )
+    impact = impact_svc.analyze_and_apply_correction(corr, project_id=project_id)
+    logger.info(f"Correction Summary: {impact.summary}")
+    logger.info(f"Directly Affected Experiments: {impact.directly_affected_experiment_ids}")
+    logger.info(f"Unaffected Experiments Count: {len(impact.unaffected_experiment_ids)}")
+    logger.info(f"Review Items Created: {impact.review_item_ids}")
+    logger.info(f"Sample Dependency Path: {impact.paths[0] if impact.paths else 'None'}")
+    logger.info("Seed and demonstration completed successfully!")
+
+
+if __name__ == "__main__":
+    run_seed()

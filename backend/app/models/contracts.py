@@ -646,3 +646,170 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: list[ErrorDetail] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Person A: Graph, Lineage, Ingestion & Correction Contracts
+# ---------------------------------------------------------------------------
+
+class MetricModel(MetricValue):
+    pass
+
+
+class ConfigurationModel(BaseModel):
+    id: str | None = None
+    canonical_json: str | None = None
+    config_hash: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict, description="Arbitrary model-specific parameters")
+
+
+class ExperimentDetail(ExperimentSummary):
+    description: str | None = None
+    configuration: dict[str, Any] | None = None
+    dataset_name: str | None = None
+    dataset_version: str | None = None
+    random_seed: int | None = None
+    source_reference: str | None = None
+    notes: str | None = None
+    parent_experiment_ids: list[str] = Field(default_factory=list)
+    child_experiment_ids: list[str] = Field(default_factory=list)
+    claims: list[dict[str, Any]] = Field(default_factory=list)
+    review_items: list[dict[str, Any]] = Field(default_factory=list)
+    quality_status: str | None = "valid"
+
+
+class LineageNode(BaseModel):
+    id: str
+    name: str
+    label: str = "Experiment"
+    model_family: str | None = None
+    status: str | None = None
+    quality_status: str | None = None
+    dataset_version_id: str | None = None
+    depth: int = 0
+    is_root: bool = False
+
+
+class LineageEdge(BaseModel):
+    source: str
+    target: str
+    relationship_type: str = "PARENT_OF"
+
+
+class ExperimentLineageResponse(BaseModel):
+    root_id: str
+    nodes: list[LineageNode] = Field(default_factory=list)
+    edges: list[LineageEdge] = Field(default_factory=list)
+
+
+class ImportErrorItem(BaseModel):
+    row: int | None = None
+    experiment_id: str | None = None
+    reason: str
+
+
+class ImportSummary(BaseModel):
+    imported: int = 0
+    skipped: int = 0
+    failed: int = 0
+    errors: list[ImportErrorItem] = Field(default_factory=list)
+
+
+class ExperimentIngestRecord(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    model_family: str
+    status: str = "completed"
+    description: str | None = None
+    dataset_name: str | None = None
+    dataset_version: str | None = None
+    dataset_version_id: str | None = None
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    hyperparameters: dict[str, Any] = Field(default_factory=dict)
+    metrics: list[MetricModel] = Field(default_factory=list)
+    duration_seconds: float | None = None
+    compute_cost_gpu_hours: float | None = None
+    random_seed: int | None = None
+    source_reference: str | None = None
+    notes: str | None = None
+    parent_experiment_id: str | None = None
+    created_at: str | None = None
+    extra_fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class DependencyPath(BaseModel):
+    nodes: list[str] = Field(..., description="Ordered list of node IDs forming the dependency path")
+    relationship_types: list[str] = Field(..., description="Ordered list of relationships traversed")
+    reason: str | None = None
+
+
+class CorrectionCreate(BaseModel):
+    source_id: str = Field(..., description="ID of the affected node")
+    source_type: str = Field(default="dataset_version", description="Type: dataset_version, experiment, evidence, claim, metric")
+    description: str = Field(..., description="Reason/evidence for why this item is invalid or unreliable")
+    created_by: str | None = "system"
+
+
+class CorrectionImpactResponse(BaseModel):
+    correction_id: str
+    source_id: str
+    summary: str
+    directly_affected_experiment_ids: list[str] = Field(default_factory=list)
+    potentially_affected_claim_ids: list[str] = Field(default_factory=list)
+    unaffected_experiment_ids: list[str] = Field(default_factory=list)
+    review_item_ids: list[str] = Field(default_factory=list)
+    paths: list[DependencyPath] = Field(default_factory=list)
+
+
+class ReviewItemResponse(BaseModel):
+    id: str
+    experiment_id: str
+    reason: str
+    status: str = "NEEDS_REVIEW"
+    created_at: str
+
+
+class ReviewItemResolve(BaseModel):
+    status: str = Field(default="RESOLVED", description="New status: RESOLVED, DISMISSED, SUPERSEDED")
+    notes: str | None = None
+    resolved_by: str | None = None
+
+
+class ProjectCreate(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+
+
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    created_at: str | None = None
+    experiment_count: int = 0
+
+
+class ProjectGraphSummary(BaseModel):
+    project_id: str
+    node_counts: dict[str, int] = Field(default_factory=dict)
+    relationship_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class GraphNodeData(BaseModel):
+    id: str
+    label: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphEdgeData(BaseModel):
+    source: str
+    target: str
+    relationship_type: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectGraphResponse(BaseModel):
+    project_id: str
+    nodes: list[GraphNodeData] = Field(default_factory=list)
+    edges: list[GraphEdgeData] = Field(default_factory=list)
