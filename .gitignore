@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local config (PRD 15: never commit API keys)
+.env
+.env.local
+
+# Node (frontend owner scope, this entry is shared)
+node_modules/
+dist/
