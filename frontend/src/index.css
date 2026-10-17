@@ -1,0 +1,85 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink-950: #0a0c10;
+  --color-ink-900: #11151c;
+  --color-ink-850: #161b24;
+  --color-ink-800: #1c222d;
+  --color-ink-700: #262e3b;
+  --color-ink-600: #3a4453;
+  --color-ink-400: #7c8798;
+  --color-ink-300: #a7b1c0;
+  --color-ink-100: #e4e9f0;
+
+  --color-signal-400: #4fd1c5;
+  --color-signal-500: #2cb5a8;
+  --color-warn-400: #f0b429;
+  --color-danger-400: #f2666e;
+  --color-good-400: #5fd18b;
+
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-ink-950);
+    color: var(--color-ink-100);
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--color-signal-500);
+    color: #04140f;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-ink-700 bg-ink-900;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-ink-700 px-4 py-3;
+  }
+
+  .label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400;
+  }
+
+  .mono-id {
+    @apply font-mono text-[12px] text-signal-400;
+  }
+
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-ink-600
+      bg-ink-800 px-3 py-1.5 text-sm font-medium text-ink-100 transition
+      hover:border-ink-400 hover:bg-ink-700
+      disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink-800;
+  }
+
+  .btn-primary {
+    @apply border-signal-500 bg-signal-500 text-ink-950 hover:bg-signal-400 hover:border-signal-400;
+  }
+
+  .btn-danger {
+    @apply border-danger-400/60 text-danger-400 hover:border-danger-400 hover:bg-danger-400/10;
+  }
+
+  .input {
+    @apply w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-1.5 text-sm text-ink-100
+      outline-none placeholder:text-ink-600 focus:border-signal-500;
+  }
+
+  .table-cell {
+    @apply px-3 py-2 text-sm text-ink-300;
+  }
+}
