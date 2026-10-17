@@ -8,8 +8,9 @@ Conforms to PRD Section 9:
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from app.api.errors import not_found
 from app.services.impact_analysis import ImpactAnalysisService
 from app.graph.repository import GraphRepository
 from app.models.contracts import (
@@ -56,7 +57,7 @@ def get_correction_impact(
 ) -> CorrectionImpactResponse:
     impact = service.get_correction_impact(correction_id)
     if not impact:
-        raise HTTPException(status_code=404, detail=f"Correction '{correction_id}' not found.")
+        raise not_found("correction", correction_id)
     return impact
 
 
@@ -75,14 +76,19 @@ def get_review_queue(
 
 @router.post(
     "/review-items/{review_item_id}/resolve",
+    response_model=ReviewItemResponse,
     summary="Resolve a review item",
-    description="Marks a review item as resolved or dismissed with optional resolution notes."
+    description=(
+        "Marks a review item resolved or dismissed with optional notes. The item is "
+        "kept, so the resolution history survives (FR-6 #2, #10)."
+    ),
 )
 def resolve_review_item(
     review_item_id: str,
     resolution: ReviewItemResolve,
+    project_id: Optional[str] = None,
     repo: GraphRepository = Depends(get_repository)
-):
+) -> ReviewItemResponse:
     result = repo.resolve_review_item(
         review_item_id=review_item_id,
         status=resolution.status,
@@ -90,5 +96,9 @@ def resolve_review_item(
         resolved_by=resolution.resolved_by
     )
     if not result:
-        raise HTTPException(status_code=404, detail=f"Review item '{review_item_id}' not found.")
-    return result
+        raise not_found("review item", review_item_id)
+
+    updated = repo.get_review_item(review_item_id)
+    if updated is None:
+        raise not_found("review item", review_item_id)
+    return updated

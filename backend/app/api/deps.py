@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
 
+from app.api.errors import bad_request, graph_unavailable, not_found
 from app.ports.graph import GraphService
 from app.services.comparability import ComparabilityEngine
 from app.services.llm_adapter import ExplanationWriter, build_llm_client
@@ -35,10 +36,7 @@ def get_graph_service(request: Request) -> GraphService:
     """Resolve the graph service, or fail with a structured 503."""
     service = getattr(request.app.state, "graph_service", None)
     if service is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=[{"code": "graph_service_unavailable", "message": GRAPH_NOT_CONFIGURED}],
-        )
+        raise graph_unavailable(GRAPH_NOT_CONFIGURED)
     return service
 
 
@@ -72,21 +70,17 @@ EngineDep = Annotated[RecommendationEngine, Depends(get_recommendation_engine)]
 WriterDep = Annotated[ExplanationWriter, Depends(get_explanation_writer)]
 
 
-def not_found(entity: str, entity_id: str) -> HTTPException:
-    """Structured 404 so the frontend can render a message without guessing."""
-    return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=[
-            {
-                "code": f"{entity}_not_found",
-                "message": f"No {entity} with id {entity_id!r} exists in this project.",
-            }
-        ],
-    )
-
-
-def bad_request(code: str, message: str, field_name: str | None = None) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=[{"code": code, "message": message, "field": field_name}],
-    )
+# Re-exported from ``app.api.errors`` so every router raises the same envelope.
+__all__ = [
+    "GRAPH_NOT_CONFIGURED",
+    "get_graph_service",
+    "get_comparability_engine",
+    "get_recommendation_engine",
+    "get_explanation_writer",
+    "GraphDep",
+    "ComparabilityDep",
+    "EngineDep",
+    "WriterDep",
+    "not_found",
+    "bad_request",
+]

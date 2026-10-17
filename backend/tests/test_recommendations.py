@@ -664,8 +664,11 @@ def client(graph, deterministic_writer) -> TestClient:
     app = FastAPI()
     app.state.graph_service = graph
     app.state.explanation_writer = deterministic_writer
-    app.include_router(recommendations.router)
-    app.include_router(copilot.router)
+    # Routers carry no prefix of their own; ``app.main`` mounts them under
+    # ``settings.API_V1_STR``. The test app mirrors that so the paths asserted here
+    # are the paths the real server serves.
+    app.include_router(recommendations.router, prefix="/api/v1")
+    app.include_router(copilot.router, prefix="/api/v1")
     return TestClient(app)
 
 
@@ -730,7 +733,7 @@ def test_decision_endpoint_persists_approval(client):
 
 def test_missing_graph_service_returns_503(graph):
     app = FastAPI()
-    app.include_router(recommendations.router)
+    app.include_router(recommendations.router, prefix="/api/v1")
     response = TestClient(app).post(
         f"/api/v1/projects/{PROJECT_ID}/recommendations",
         json={"objective": "Improve accuracy"},

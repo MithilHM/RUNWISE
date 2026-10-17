@@ -134,10 +134,11 @@ def test_api_correction_and_review_workflow(test_client):
     assert len(queue_res.json()) >= 1
     review_item_id = queue_res.json()[0]["id"]
 
-    # Resolve review item
+    # Resolve review item. The status vocabulary is lowercase to match the contract
+    # enum; "RESOLVED" is no longer accepted.
     resolve_res = client.post(f"/api/v1/review-items/{review_item_id}/resolve", json={
-        "status": "RESOLVED",
+        "status": "resolved",
         "notes": "Verified robust under clean test set."
     })
     assert resolve_res.status_code == 200
-    assert resolve_res.json()["status"] == "RESOLVED"
+    assert resolve_res.json()["status"] == "resolved"

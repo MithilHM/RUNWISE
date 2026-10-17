@@ -28,7 +28,9 @@ from app.models.contracts import (
     RecommendationSet,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["recommendations"])
+# No prefix here: ``app/main.py`` mounts every router under ``settings.API_V1_STR``.
+# Declaring one as well produced the unreachable ``/api/v1/api/v1/...`` paths.
+router = APIRouter(tags=["recommendations"])
 
 
 @router.post(

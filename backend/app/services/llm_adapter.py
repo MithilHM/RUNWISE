@@ -54,6 +54,20 @@ class LLMClient(Protocol):
                  max_tokens: int = 700) -> LLMResult: ...
 
 
+def usable_text(result: LLMResult) -> str | None:
+    """Return the generated prose, or ``None`` when there is none worth using.
+
+    ``used=True`` on its own is not proof of an answer: a client can report a
+    completed call and hand back an empty or placeholder string. Every caller that
+    decides whether to set ``llm_used`` goes through this check, so the flag cannot
+    drift ahead of the text the user actually sees (PRD 15).
+    """
+    text = (result.text or "").strip()
+    if not result.used or not text:
+        return None
+    return text
+
+
 class DeterministicLLMClient:
     """The no-key default. Reports itself unavailable so callers skip it."""
 
@@ -131,6 +145,13 @@ class OpenAICompatibleLLMClient:
             text = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMUnavailable("LLM response had an unexpected shape") from exc
+
+        if text is None or not str(text).strip():
+            # A 200 with no usable content is not a completed call. Reporting it as
+            # one would let the API answer with an empty string while claiming a
+            # model was consulted (PRD 15), so the deterministic text is used and
+            # ``llm_used`` stays false.
+            raise LLMUnavailable("LLM returned an empty completion")
 
         return LLMResult(text=str(text).strip(), model=self._model, used=True)
 
@@ -300,8 +321,8 @@ class ExplanationWriter:
                 fallback_reason=str(exc),
             )
 
-        # A client that reports it made no call must never be presented as one,
-        # whatever text it returned (PRD 15).
+        # A client that reports it made no call, or made one that produced no
+        # usable text, must never be presented as one (PRD 15).
         if not result.used:
             return ExplanationResult(
                 text=deterministic_text,
@@ -310,6 +331,18 @@ class ExplanationWriter:
                 model=result.model,
                 fallback_reason=(
                     "the client returned no completed call; the deterministic "
+                    "explanation was used instead"
+                ),
+            )
+
+        if usable_text(result) is None:
+            return ExplanationResult(
+                text=deterministic_text,
+                mode=AnswerMode.DETERMINISTIC,
+                llm_used=False,
+                model=result.model,
+                fallback_reason=(
+                    "the model returned an empty answer; the deterministic "
                     "explanation was used instead"
                 ),
             )

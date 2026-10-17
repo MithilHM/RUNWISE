@@ -7,8 +7,9 @@ Supports JSON payload and multipart CSV file upload.
 
 import json
 from typing import Optional, List, Dict, Any, Union
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends
 
+from app.api.errors import bad_request
 from app.services.ingestion import IngestionService
 from app.models.contracts import ImportSummary
 
@@ -55,27 +56,29 @@ async def import_experiments(
                 except Exception:
                     pass
                 return service.ingest_json(content, project_id=project_id)
-        raise HTTPException(status_code=400, detail="Form submission missing 'file' field.")
+        raise bad_request(
+            "missing_file", "Form submission is missing the 'file' field.", field_name="file"
+        )
 
     # Try parsing body as JSON
     try:
         body = await request.json()
         if body is not None:
             return service.ingest_json(body, project_id=project_id)
-    except Exception as e:
-        # If raw text / CSV in body
+    except Exception as json_error:
+        # Not JSON: accept a raw CSV body rather than discarding it.
         try:
             raw_text = (await request.body()).decode("utf-8")
             if "," in raw_text and "\n" in raw_text:
                 return service.ingest_csv(raw_text, project_id=project_id)
         except Exception:
             pass
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid payload format: {str(e)}"
+        raise bad_request(
+            "invalid_payload",
+            f"Body was neither JSON nor CSV: {json_error}",
         )
 
-    raise HTTPException(
-        status_code=400,
-        detail="Must provide either a JSON body or an uploaded CSV/JSON file."
+    raise bad_request(
+        "invalid_payload",
+        "Provide either a JSON body or an uploaded CSV/JSON file.",
     )

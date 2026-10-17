@@ -7,8 +7,9 @@ Conforms to PRD Section 9:
 """
 
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from app.api.errors import not_found
 from app.graph.repository import GraphRepository
 from app.models.contracts import ProjectCreate, ProjectResponse
 
@@ -33,12 +34,13 @@ def create_project(
         name=project.name,
         description=project.description
     )
+    stored = repo.get_project(project.id) or {}
     return ProjectResponse(
-        id=res["id"],
-        name=res["name"],
+        id=project.id,
+        name=res.get("name", project.name),
         description=res.get("description"),
-        created_at=res.get("created_at"),
-        experiment_count=0
+        created_at=str(stored.get("created_at")) if stored.get("created_at") else None,
+        experiment_count=stored.get("experiment_count", 0)
     )
 
 
@@ -74,11 +76,11 @@ def get_project(
 ) -> ProjectResponse:
     p = repo.get_project(project_id)
     if not p:
-        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+        raise not_found("project", project_id)
     return ProjectResponse(
         id=p["id"],
         name=p.get("name", p["id"]),
         description=p.get("description"),
-        created_at=p.get("created_at"),
+        created_at=str(p["created_at"]) if p.get("created_at") else None,
         experiment_count=p.get("experiment_count", 0)
     )

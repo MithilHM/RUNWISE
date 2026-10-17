@@ -56,7 +56,9 @@ from app.services.recommendations import (
     parse_objective,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["copilot"])
+# Mounted by ``app/main.py`` under ``settings.API_V1_STR``; see the note in
+# ``app/api/recommendations.py``.
+router = APIRouter(tags=["copilot"])
 
 
 class ResearchQueryService:

@@ -68,13 +68,17 @@ def test_lineage_traversal(test_repo):
     test_repo.create_or_update_experiment({"id": "E2", "project_id": "p_lin", "name": "Exp 2", "parent_experiment_id": "E1"})
     test_repo.create_or_update_experiment({"id": "E3", "project_id": "p_lin", "name": "Exp 3", "parent_experiment_id": "E2"})
 
-    # Check lineage centered at E2
-    lineage_e2 = test_repo.get_experiment_lineage("E2")
-    node_ids = {n.id for n in lineage_e2.nodes}
-    assert "E1" in node_ids
-    assert "E2" in node_ids
-    assert "E3" in node_ids
-    assert len(lineage_e2.edges) == 2
+    # Port shape: edges as {"from", "to", "type"} triples.
+    edges = test_repo.get_experiment_lineage("E2")
+    pairs = {(edge["from"], edge["to"]) for edge in edges}
+    assert pairs == {("E1", "E2"), ("E2", "E3")}
+    assert {edge["type"] for edge in edges} == {"PARENT_OF"}
+
+    # UI shape: the same neighbourhood as nodes and edges for rendering.
+    graph = test_repo.get_experiment_lineage_graph("E2")
+    node_ids = {n.id for n in graph.nodes}
+    assert {"E1", "E2", "E3"} <= node_ids
+    assert len(graph.edges) == 2
 
 
 def test_related_experiments(test_repo):

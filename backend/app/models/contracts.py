@@ -231,13 +231,20 @@ class ExperimentSummary(Record):
     id: str
     project_id: str
     name: str
-    model_family: str
+    model_family: str | None = None
+    """``None`` when the source never stated a family. FR-1 #8 forbids inventing
+    one, and a plausible-sounding default would silently merge two different
+    families into one comparability cohort."""
     dataset_version_id: str | None = None
     status: ExperimentStatus = ExperimentStatus.UNKNOWN
     metrics: list[MetricValue] = Field(default_factory=list)
     compute_cost_gpu_hours: float | None = None
     created_at: datetime | None = None
     duration_seconds: float | None = None
+    quality_status: str | None = "valid"
+    """Recorded trust state. ``needs_review`` once a correction reaches the run
+    (FR-6), ``disputed`` when the record itself is challenged. A frontend must not
+    treat a withheld run as a usable baseline."""
 
 
 class ExperimentRecord(ExperimentSummary):
@@ -298,8 +305,10 @@ class DatasetVersionSummary(Record):
     id: str
     dataset_id: str
     version: str
-    quality_status: EvidenceStatus = EvidenceStatus.OBSERVED
-    """Becomes DISPUTED when a correction challenges this version (FR-6)."""
+    quality_status: EvidenceStatus | None = EvidenceStatus.OBSERVED
+    """Becomes DISPUTED when a correction challenges this version (FR-6). An
+    unrecognised stored value maps to ``None`` (unrecorded) rather than being
+    guessed into a grade."""
     created_at: datetime | None = None
 
 
@@ -713,15 +722,24 @@ class ImportSummary(BaseModel):
     skipped: int = 0
     failed: int = 0
     errors: list[ImportErrorItem] = Field(default_factory=list)
+    warnings: list[ImportErrorItem] = Field(
+        default_factory=list,
+        description=(
+            "Rows that were accepted with something dropped, or skipped as already "
+            "present. Kept apart from ``errors`` so a clean import is not reported as "
+            "a failure."
+        ),
+    )
 
 
 class ExperimentIngestRecord(BaseModel):
     id: str
     project_id: str
     name: str
-    model_family: str
-    status: str = "completed"
+    model_family: str | None = None
+    status: str | None = None
     description: str | None = None
+    dataset_id: str | None = None
     dataset_name: str | None = None
     dataset_version: str | None = None
     dataset_version_id: str | None = None
@@ -754,26 +772,54 @@ class CorrectionCreate(BaseModel):
 class CorrectionImpactResponse(BaseModel):
     correction_id: str
     source_id: str
+    source_type: str | None = None
     summary: str
     directly_affected_experiment_ids: list[str] = Field(default_factory=list)
+    """Runs that read or wrote the corrected node itself."""
+    indirectly_affected_experiment_ids: list[str] = Field(default_factory=list)
+    """Runs reached transitively through PARENT_OF lineage. Kept separate from the
+    direct tier so a downstream run is never presented as if it touched the defect
+    (PRD 8: distinguish direct from indirect impact)."""
     potentially_affected_claim_ids: list[str] = Field(default_factory=list)
     unaffected_experiment_ids: list[str] = Field(default_factory=list)
     review_item_ids: list[str] = Field(default_factory=list)
     paths: list[DependencyPath] = Field(default_factory=list)
+    generated_at: datetime | None = None
 
 
 class ReviewItemResponse(BaseModel):
     id: str
-    experiment_id: str
+    experiment_id: str | None = None
     reason: str
-    status: str = "NEEDS_REVIEW"
+    status: ReviewItemStatus = ReviewItemStatus.OPEN
+    """Lowercase to match the shared contract enum. Legacy ``NEEDS_REVIEW`` values
+    are normalised on read so the frontend switches on one vocabulary."""
+    project_id: str | None = None
+    correction_id: str | None = None
     created_at: str
+    resolved_at: str | None = None
+    resolved_by: str | None = None
+    resolution_notes: str | None = None
 
 
 class ReviewItemResolve(BaseModel):
-    status: str = Field(default="RESOLVED", description="New status: RESOLVED, DISMISSED, SUPERSEDED")
+    status: ReviewItemStatus = Field(
+        default=ReviewItemStatus.RESOLVED, description="New status: resolved, dismissed"
+    )
     notes: str | None = None
     resolved_by: str | None = None
+
+
+class ComparabilityRequest(BaseModel):
+    """FR-4 over HTTP: assess one experiment against one of its comparable peers."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    compare_experiment_id: str | None = Field(
+        default=None,
+        description="Peer to assess. Omit to assess against the best available peer.",
+    )
+    metric_name: str | None = None
 
 
 class ProjectCreate(BaseModel):
@@ -813,3 +859,7 @@ class ProjectGraphResponse(BaseModel):
     project_id: str
     nodes: list[GraphNodeData] = Field(default_factory=list)
     edges: list[GraphEdgeData] = Field(default_factory=list)
+    truncated: bool = False
+    """True when the node budget cut the traversal, so the UI can say the graph is
+    partial instead of implying the project is fully connected."""
+    node_limit: int = 500

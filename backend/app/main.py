@@ -7,8 +7,10 @@ and Person B (Recommendations/Copilot).
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.graph.client import graph_client
@@ -57,14 +59,92 @@ app = FastAPI(
 # Wire graph service into application state for Person B recommendation / copilot dependencies
 app.state.graph_service = GraphRepository()
 
-# CORS Middleware for frontend integration (Person C)
+# CORS for the frontend dev server. Origins are explicit: ``allow_origins=["*"]``
+# combined with credentials is rejected by browsers, and an open origin on a
+# service with no authentication is a hole rather than a convenience.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# One error envelope for every failure (PRD 9: structured errors everywhere)
+# ---------------------------------------------------------------------------
+
+
+def _as_detail_list(detail: object, fallback_code: str) -> list[dict]:
+    """Coerce any exception detail into the canonical list of error objects."""
+    if isinstance(detail, list) and detail and all(isinstance(d, dict) and "code" in d for d in detail):
+        return [
+            {"code": str(d.get("code")), "message": str(d.get("message", "")), "field": d.get("field")}
+            for d in detail
+        ]
+    if isinstance(detail, dict) and "code" in detail:
+        return [{"code": str(detail["code"]), "message": str(detail.get("message", "")), "field": detail.get("field")}]
+    return [{"code": fallback_code, "message": str(detail), "field": None}]
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    code_by_status = {
+        status.HTTP_400_BAD_REQUEST: "bad_request",
+        status.HTTP_401_UNAUTHORIZED: "unauthorized",
+        status.HTTP_403_FORBIDDEN: "forbidden",
+        status.HTTP_404_NOT_FOUND: "not_found",
+        status.HTTP_409_CONFLICT: "conflict",
+        status.HTTP_422_UNPROCESSABLE_ENTITY: "validation_error",
+        status.HTTP_503_SERVICE_UNAVAILABLE: "service_unavailable",
+    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": _as_detail_list(
+                exc.detail, code_by_status.get(exc.status_code, "http_error")
+            )
+        },
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Report a body or query problem in the same shape as every other error."""
+    errors = [
+        {
+            "code": "validation_error",
+            "message": f"{'.'.join(str(p) for p in err.get('loc', [])[1:])}: {err.get('msg', 'invalid value')}",
+            "field": ".".join(str(p) for p in err.get("loc", [])[1:]) or None,
+        }
+        for err in exc.errors()
+    ]
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": errors})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """A database failure is a 503 with a code, not an opaque 500 with a traceback.
+
+    The frontend can then show "the graph is unavailable, retry" instead of a parse
+    error, and the message never leaks a driver stack trace to a client.
+    """
+    logger.exception("Unhandled error serving %s %s", request.method, request.url.path)
+    if exc.__class__.__module__.startswith("falkordb"):
+        code, http_status, message = (
+            "graph_unavailable",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The graph database is not reachable. Retry once FalkorDB is back.",
+        )
+    else:
+        code, http_status, message = (
+            "internal_error",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "The request could not be completed.",
+        )
+    return JSONResponse(status_code=http_status, content={"detail": [{"code": code, "message": message, "field": None}]})
 
 
 @app.get("/health", tags=["system"])

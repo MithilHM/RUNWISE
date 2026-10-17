@@ -461,7 +461,7 @@ def _client(graph, writer=None) -> TestClient:
     app.state.graph_service = graph
     if writer is not None:
         app.state.explanation_writer = writer
-    app.include_router(copilot.router)
+    app.include_router(copilot.router, prefix="/api/v1")
     return TestClient(app)
 
 
