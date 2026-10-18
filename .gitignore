@@ -15,5 +15,13 @@ venv/
 node_modules/
 dist/
 
+# Uploaded CSVs and frames written by the ingestor. Runtime data, not source.
+runs_data/
+backend/runs_data/
+
 # Local tool artifacts (browser screenshots taken during review)
 .openchamber/
+
+# Working briefs handed out per team member. Local coordination only, never committed.
+MEMBER_*.md
+BRIEF_*.md

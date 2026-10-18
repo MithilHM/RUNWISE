@@ -1,277 +1,339 @@
-"""Sandboxed ML Worker for autonomous tabular model experiment execution.
+"""Executes one model on one configuration and measures it.
 
-Executes LightGBM / Scikit-Learn training trials non-blockingly using a bundled benchmark dataset
-with early stopping, measuring PR-AUC, F1, LogLoss, memory consumption, and catching invalid
-hyperparameter configurations.
+Two rules govern this module, and both exist to keep the graph honest:
+
+1. **A configuration that fails validation never produces a metric.** It produces
+   a `FAILED` trial with a reason and `metric_value=None`. A number from an
+   invalid configuration is not a measurement, and recording it as one would put
+   a fabrication in the graph next to real observations.
+2. **A metric that was not computed is absent, not substituted.** If a run asks
+   for `pr_auc` on a multiclass dataset, the other three metrics are reported and
+   `pr_auc` is simply not there. Renaming `roc_auc` to `pr_auc` would return a
+   plausible number that means something else.
+
+Everything is seeded from `settings.RANDOM_SEED`, so re-running a configuration
+returns the same numbers.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 import time
-import tracemalloc
 import uuid
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
-import pandas as pd
-from sklearn.metrics import average_precision_score, f1_score, log_loss
-from sklearn.model_selection import train_test_split
 
-from app.models.runtime_contracts import CandidateConfig, TrialResult
+from app.core.config import settings
+from app.models.contracts import BINARY_ONLY_METRICS, TrialOutcome, is_number
+from app.services import catalog
+from app.services.ingestion import DatasetIngestor, IngestionError, get_ingestor
 
 logger = logging.getLogger(__name__)
 
-# Metrics this worker actually computes. A target outside this set is not produced:
-# the trial reports it as absent so callers render "not recorded". Substituting a
-# different metric under a requested name would return a real-looking number that
-# means something else entirely, which is worse than no number at all.
-COMPUTED_METRICS = ("val_pr_auc", "val_f1", "val_loss")
+__all__ = ["TrialTrainer", "get_trainer", "METRIC_LABELS"]
+
+METRIC_LABELS: Dict[str, str] = {
+    "accuracy": "Accuracy",
+    "f1_macro": "F1 (macro)",
+    "roc_auc": "ROC-AUC",
+    "pr_auc": "PR-AUC",
+}
 
 
-class SandboxedMLWorker:
-    """Lightweight, non-blocking executor for tabular models on benchmark data regimes."""
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-    def __init__(self, data_path: Optional[str] = None):
-        self.data_path = data_path or self._resolve_default_dataset_path()
-        self._X_train: Optional[np.ndarray] = None
-        self._X_val: Optional[np.ndarray] = None
-        self._y_train: Optional[np.ndarray] = None
-        self._y_val: Optional[np.ndarray] = None
-        self._load_and_split_data()
 
-    def _resolve_default_dataset_path(self) -> str:
-        """Finds bundled benchmark credit card fraud or churn dataset."""
-        candidates = [
-            Path("sample_data/benchmark_credit_card_fraud.csv"),
-            Path("../sample_data/benchmark_credit_card_fraud.csv"),
-            Path("sample_data/synthetic_experiments.csv"),
-            Path("../sample_data/synthetic_experiments.csv"),
-        ]
-        for p in candidates:
-            if p.exists():
-                return str(p.resolve())
+def _finite(results: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:
+    """Turns any NaN or infinity into None.
 
-        # Fallback to generating in-memory or saving if path doesn't exist
-        fallback_path = Path("sample_data/benchmark_credit_card_fraud.csv")
-        fallback_path.parent.mkdir(parents=True, exist_ok=True)
-        return str(fallback_path.resolve())
+    `roc_auc_score` returns NaN on a one-class fold instead of raising, so the
+    metric dict has to be swept afterwards. A NaN in this graph is not a display
+    problem: every comparison against it is False, so it would become the best
+    result on its first comparison and then be impossible to displace.
+    """
+    return {
+        key: (None if value is None or not is_number(value) else float(value))
+        for key, value in results.items()
+    }
 
-    def _load_and_split_data(self) -> None:
-        """Loads and pre-splits benchmark tabular data 80/20 train/validation."""
+
+class TrialTrainer:
+    """Implements the `Trainer` port against real scikit-learn estimators."""
+
+    def __init__(self, ingestor: Optional[DatasetIngestor] = None) -> None:
+        self.ingestor = ingestor or get_ingestor()
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate(self, model_id: str, params: Dict[str, Any]) -> list[str]:
+        """Problems with this configuration. Empty means it will train."""
+        problems: list[str] = []
         try:
-            if os.path.exists(self.data_path) and os.path.getsize(self.data_path) > 0:
-                df = pd.read_csv(self.data_path)
-                if "Class" in df.columns:
-                    X = df.drop(columns=["Class"]).values
-                    y = df["Class"].values
-                elif "target" in df.columns:
-                    X = df.drop(columns=["target"]).values
-                    y = df["target"].values
-                else:
-                    # Synthetic tabular features
-                    numeric_cols = df.select_dtypes(include=[np.number]).columns
-                    if len(numeric_cols) >= 2:
-                        X = df[numeric_cols[:-1]].values
-                        y = (df[numeric_cols[-1]] > df[numeric_cols[-1]].median()).astype(int).values
-                    else:
-                        raise ValueError("No numeric columns available in dataset")
-            else:
-                X, y = self._generate_synthetic_benchmark()
-        except Exception as e:
-            logger.warning("Error loading %s (%s). Generating synthetic benchmark in-memory.", self.data_path, e)
-            X, y = self._generate_synthetic_benchmark()
+            resolved = catalog.coerce_params(model_id, params)
+        except (KeyError, ValueError) as exc:
+            return [str(exc)]
+        problems.extend(catalog.validate_params(model_id, resolved))
+        return problems
 
-        # Stratified 80/20 split
-        X_tr, X_va, y_tr, y_va = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-        self._feature_names = [f"V{i+1}" for i in range(X.shape[1])]
-        self._X_train = pd.DataFrame(X_tr, columns=self._feature_names)
-        self._X_val = pd.DataFrame(X_va, columns=self._feature_names)
-        self._y_train = y_tr
-        self._y_val = y_va
+    # ------------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------------
 
-    def _generate_synthetic_benchmark(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Generates a realistic imbalanced fraud benchmark dataset (98:2 negative:positive ratio)."""
-        rng = np.random.RandomState(42)
-        n = 2000
-        n_fraud = 40
-        n_normal = n - n_fraud
-        normal_feats = rng.randn(n_normal, 10)
-        fraud_feats = rng.randn(n_fraud, 10) + 1.8
-        X = np.vstack([normal_feats, fraud_feats])
-        y = np.array([0] * n_normal + [1] * n_fraud)
-        idx = rng.permutation(n)
-        return X[idx], y[idx]
-
-    def run_trial(
+    def train(
         self,
-        candidate: CandidateConfig,
-        target_metric: str = "val_pr_auc",
-        model_family: str = "lightgbm",
-        timeout_seconds: float = 30.0,
-    ) -> TrialResult:
-        """Synchronously executes a training trial for a candidate configuration."""
-        trial_id = f"trial_{candidate.candidate_id}_{uuid.uuid4().hex[:6]}"
-        hparams = dict(candidate.hyperparameters)
+        dataset_id: str,
+        model_id: str,
+        params: Dict[str, Any],
+        metric: str = "accuracy",
+        seed: Optional[int] = None,
+    ) -> TrialOutcome:
+        """Trains one model and returns the measured outcome."""
+        seed = settings.RANDOM_SEED if seed is None else seed
+        trial_id = f"trial_{uuid.uuid4().hex[:8]}"
 
-        # 1. Validate hyperparameters & catch simulated/real invalid combinations
-        lr = hparams.get("learning_rate", 0.1)
-        max_depth = hparams.get("max_depth", 4)
-        n_est = hparams.get("n_estimators", 100)
-        colsample = hparams.get("colsample_bytree", 1.0)
-        scale_pos = hparams.get("scale_pos_weight", 1.0)
-
-        if lr is not None and lr <= 0:
-            return TrialResult(
-                trial_id=trial_id,
-                candidate_id=candidate.candidate_id,
-                hyperparameters=hparams,
-                metrics={target_metric: None, "val_loss": None, "train_time_sec": 0.001},
-                status="FAILED",
-                failure_reason=f"Invalid learning rate {lr}: must be positive",
-                memory_mb=0.1,
+        # Strict first: a configuration that arrived out of domain is a failed
+        # trial, not something to silently clamp. Clamping belongs to the slider
+        # path, where overshoot means "as extreme as available".
+        raw_problems = catalog.validate_params(model_id, params or {}, strict=True)
+        if raw_problems:
+            return self._failed(
+                trial_id, model_id, dict(params or {}), metric,
+                "Invalid configuration: " + "; ".join(raw_problems), seed,
             )
-
-        if max_depth is not None and max_depth <= 0:
-            return TrialResult(
-                trial_id=trial_id,
-                candidate_id=candidate.candidate_id,
-                hyperparameters=hparams,
-                metrics={target_metric: None, "val_loss": None, "train_time_sec": 0.001},
-                status="FAILED",
-                failure_reason=f"Invalid max_depth {max_depth}: must be >= 1",
-                memory_mb=0.1,
-            )
-
-        if colsample is not None and (colsample <= 0 or colsample > 1.0):
-            return TrialResult(
-                trial_id=trial_id,
-                candidate_id=candidate.candidate_id,
-                hyperparameters=hparams,
-                metrics={target_metric: None, "val_loss": None, "train_time_sec": 0.001},
-                status="FAILED",
-                failure_reason=f"Invalid colsample_bytree {colsample}: must be in (0, 1]",
-                memory_mb=0.1,
-            )
-
-        # 2. Execute model training with memory & time tracking
-        tracemalloc.start()
-        start_time = time.perf_counter()
 
         try:
-            model = self._build_model(model_family, hparams)
-            model.fit(self._X_train, self._y_train)
+            resolved = catalog.coerce_params(model_id, params)
+        except (KeyError, ValueError) as exc:
+            return self._failed(trial_id, model_id, params, metric, f"Invalid configuration: {exc}", seed)
 
-            # Predict probabilities for imbalanced evaluation
-            y_val_proba = model.predict_proba(self._X_val)[:, 1]
-            y_val_pred = (y_val_proba >= 0.5).astype(int)
-
-            # Metrics
-            pr_auc = float(average_precision_score(self._y_val, y_val_proba))
-            f1 = float(f1_score(self._y_val, y_val_pred, zero_division=0))
-            loss = float(log_loss(self._y_val, y_val_proba))
-            elapsed = round(time.perf_counter() - start_time, 4)
-
-            current_mem, peak_mem = tracemalloc.get_traced_memory()
-            tracemalloc.stop()
-            memory_mb = round(peak_mem / (1024 * 1024), 2)
-
-            metrics: Dict[str, Optional[float]] = {
-                "val_pr_auc": round(pr_auc, 4),
-                "val_f1": round(f1, 4),
-                "val_loss": round(loss, 4),
-                "train_time_sec": elapsed,
-            }
-            if target_metric not in COMPUTED_METRICS:
-                # Deliberately absent rather than aliased to PR-AUC. The runtime loop
-                # resolves the target by name, so a missing key surfaces as an
-                # unrecorded metric downstream instead of a mislabelled one.
-                logger.warning(
-                    "Requested target_metric %r is not computed by this worker (have %s); "
-                    "reporting it as unrecorded rather than substituting another metric.",
-                    target_metric,
-                    ", ".join(COMPUTED_METRICS),
-                )
-
-            return TrialResult(
-                trial_id=trial_id,
-                candidate_id=candidate.candidate_id,
-                hyperparameters=hparams,
-                metrics=metrics,
-                status="SUCCESS",
-                failure_reason=None,
-                memory_mb=memory_mb,
+        problems = catalog.validate_params(model_id, resolved)
+        if problems:
+            return self._failed(
+                trial_id, model_id, resolved, metric, "Invalid configuration: " + "; ".join(problems), seed
             )
 
-        except Exception as exc:
-            elapsed = round(time.perf_counter() - start_time, 4)
-            tracemalloc.stop()
-            logger.error("Trial training failed: %s", exc)
-            return TrialResult(
-                trial_id=trial_id,
-                candidate_id=candidate.candidate_id,
-                hyperparameters=hparams,
-                metrics={target_metric: None, "val_loss": None, "train_time_sec": elapsed},
-                status="FAILED",
-                failure_reason=f"Training error: {str(exc)}",
-                memory_mb=1.0,
+        try:
+            features, target = self.ingestor.get_frame(dataset_id)
+            profile = self.ingestor.get_profile(dataset_id)
+        except IngestionError as exc:
+            return self._failed(trial_id, model_id, resolved, metric, f"Dataset unavailable: {exc.message}", seed)
+
+        # Reject an impossible metric before doing any work, and do not
+        # substitute a different one.
+        if metric not in catalog.METRICS:
+            return self._failed(
+                trial_id, model_id, resolved, metric, f"Unknown metric '{metric}'", seed
+            )
+        if metric in BINARY_ONLY_METRICS and profile.task != "binary":
+            return self._failed(
+                trial_id,
+                model_id,
+                resolved,
+                metric,
+                f"{metric} is only defined for binary targets; this dataset is "
+                f"{profile.task}. Choose {', '.join(catalog.available_metrics(profile.task))}.",
+                seed,
             )
 
-    def _build_model(self, model_family: str, hparams: Dict[str, Any]) -> Any:
-        """Instantiates LightGBM or Sklearn tabular classifier."""
-        lr = float(hparams.get("learning_rate", 0.05))
-        max_depth = int(hparams.get("max_depth", 4))
-        n_est = int(hparams.get("n_estimators", 100))
-        colsample = float(hparams.get("colsample_bytree", 1.0))
-        scale_pos = float(hparams.get("scale_pos_weight", 1.0))
+        try:
+            x_train, x_test, y_train, y_test = self._split(features, target, seed)
+        except ValueError as exc:
+            # Too few members in the rarest class for a stratified split. This is
+            # a property of the data, not of the model, and it must not escape as
+            # an exception or kill the run.
+            return self._failed(
+                trial_id, model_id, resolved, metric,
+                f"Cannot split the dataset: {exc}", seed,
+            )
 
-        if model_family == "lightgbm":
+        try:
+            estimator = catalog.build_estimator(model_id, resolved, seed=seed)
+        except (KeyError, ValueError, ImportError) as exc:
+            return self._failed(trial_id, model_id, resolved, metric, f"Could not build model: {exc}", seed)
+
+        started = time.perf_counter()
+
+        try:
+            estimator.fit(x_train, y_train)
+            predictions = estimator.predict(x_test)
+            metrics = self._metrics(y_test, predictions, self._probabilities(estimator, x_test))
+        except Exception as exc:  # a library that raises mid-fit is a failed trial
+            elapsed = round(time.perf_counter() - started, 4)
+            logger.warning("Trial %s (%s) failed during training: %s", trial_id, model_id, exc)
+            outcome = self._failed(trial_id, model_id, resolved, metric, f"Training error: {exc}", seed)
+            outcome.duration_sec = elapsed
+            return outcome
+
+        duration = round(time.perf_counter() - started, 4)
+        value = metrics.get(metric)
+
+        # `roc_auc_score` returns NaN on a one-class fold rather than raising, and
+        # NaN would sail through as a real measurement. If the metric the run
+        # asked for is not a finite number, this trial produced no usable result.
+        if not is_number(value):
+            computed = ", ".join(k for k, v in metrics.items() if is_number(v)) or "none"
+            return self._failed(
+                trial_id, model_id, resolved, metric,
+                f"The model trained, but {metric} could not be measured on this split "
+                f"(a single-class validation fold, or an all-tie score). "
+                f"Measured instead: {computed}. No substitute is reported.",
+                seed,
+            )
+
+        logger.info(
+            "Trial %s: %s on %s -> %s=%.4f in %.2fs",
+            trial_id, catalog.get_model(model_id).name, profile.name, metric, value, duration,
+        )
+        return TrialOutcome(
+            trial_id=trial_id,
+            step=0,
+            model_id=model_id,
+            params=resolved,
+            status="SUCCESS",
+            metric_name=metric,
+            metric_value=value,
+            metrics=metrics,
+            failure_reason=None,
+            duration_sec=duration,
+            n_features=int(features.shape[1]),
+            seed=seed,
+            created_at=_utcnow(),
+        )
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _split(features, target, seed: int):
+        """Stratified train/test split, seeded so it is reproducible."""
+        from sklearn.model_selection import train_test_split
+
+        stratify = target if target.nunique() >= 2 else None
+        return train_test_split(
+            features,
+            target,
+            test_size=settings.TRAIN_TEST_SPLIT,
+            random_state=seed,
+            stratify=stratify,
+        )
+
+    @staticmethod
+    def _probabilities(estimator, x_test) -> Optional[np.ndarray]:
+        """Positive-class scores, or None when the model has no such method."""
+        if hasattr(estimator, "predict_proba"):
             try:
-                import lightgbm as lgb
-                return lgb.LGBMClassifier(
-                    learning_rate=lr,
-                    max_depth=max_depth,
-                    n_estimators=n_est,
-                    colsample_bytree=colsample,
-                    scale_pos_weight=scale_pos,
-                    random_state=42,
-                    verbosity=-1,
-                    n_jobs=2,
+                proba = np.asarray(estimator.predict_proba(x_test))
+                return proba[:, 1] if proba.ndim == 2 and proba.shape[1] == 2 else proba
+            except Exception:  # pragma: no cover - library dependent
+                return None
+        if hasattr(estimator, "decision_function"):
+            try:
+                scores = np.asarray(estimator.decision_function(x_test))
+                return scores if scores.ndim == 1 else scores[:, -1]
+            except Exception:  # pragma: no cover - library dependent
+                return None
+        return None
+
+    @staticmethod
+    def _metrics(y_true, y_pred, scores: Optional[np.ndarray]) -> Dict[str, Optional[float]]:
+        """Computes every metric the target actually supports.
+
+        A metric whose input is missing is reported as None, never as a stand-in.
+        """
+        from sklearn.metrics import (
+            accuracy_score,
+            average_precision_score,
+            f1_score,
+            roc_auc_score,
+        )
+
+        classes = sorted(pd_unique(y_true))
+        is_binary = len(classes) == 2
+        results: Dict[str, Optional[float]] = {
+            "accuracy": round(float(accuracy_score(y_true, y_pred)), 6),
+            "f1_macro": round(float(f1_score(y_true, y_pred, average="macro", zero_division=0)), 6),
+            "roc_auc": None,
+            "pr_auc": None,
+        }
+
+        if scores is None:
+            return _finite(results)
+
+        try:
+            if is_binary:
+                results["roc_auc"] = round(float(roc_auc_score(y_true, scores)), 6)
+            else:
+                results["roc_auc"] = round(
+                    float(roc_auc_score(y_true, scores, multi_class="ovr", average="weighted")), 6
                 )
-            except Exception as e:
-                logger.warning("LightGBM unavailable (%s), falling back to HistGradientBoosting", e)
+        except (ValueError, IndexError):
+            # A one-class fold. Reported as absent, which is the truth.
+            results["roc_auc"] = None
 
-        # Fallback Scikit-Learn gradient boosting
-        from sklearn.ensemble import HistGradientBoostingClassifier
-        return HistGradientBoostingClassifier(
-            learning_rate=lr,
-            max_depth=max_depth,
-            max_iter=min(n_est, 150),
-            class_weight={0: 1.0, 1: scale_pos} if scale_pos != 1.0 else None,
-            random_state=42,
+        if is_binary:
+            try:
+                results["pr_auc"] = round(float(average_precision_score(y_true, scores)), 6)
+            except ValueError:  # pragma: no cover - needs a single positive class
+                results["pr_auc"] = None
+        # Multiclass PR-AUC is deliberately left absent rather than approximated.
+
+        return _finite(results)
+
+    @staticmethod
+    def _failed(
+        trial_id: str,
+        model_id: str,
+        params: Dict[str, Any],
+        metric: str,
+        reason: str,
+        seed: int,
+    ) -> TrialOutcome:
+        return TrialOutcome(
+            trial_id=trial_id,
+            model_id=model_id,
+            params=params,
+            status="FAILED",
+            metric_name=metric,
+            metric_value=None,
+            metrics={},
+            failure_reason=reason,
+            duration_sec=0.0,
+            n_features=0,
+            seed=seed,
+            created_at=_utcnow(),
         )
 
-    async def execute_trial(
-        self,
-        candidate: CandidateConfig,
-        target_metric: str = "val_pr_auc",
-        model_family: str = "lightgbm",
-        timeout_seconds: float = 30.0,
-    ) -> TrialResult:
-        """Non-blocking async execution offloading CPU-bound training to a worker thread."""
-        return await asyncio.to_thread(
-            self.run_trial,
-            candidate,
-            target_metric,
-            model_family,
-            timeout_seconds,
-        )
+
+def pd_unique(series) -> list:
+    """Unique values as a sorted list, JSON-safe for mixed dtypes."""
+    import pandas as pd
+
+    return sorted(pd.unique(series.dropna()).tolist(), key=lambda v: (str(type(v)), str(v)))
 
 
-# Global default instance
-sandboxed_worker = SandboxedMLWorker()
+_trainer: Optional[TrialTrainer] = None
+_trainer_ingestor: Optional[DatasetIngestor] = None
+
+
+def get_trainer(ingestor: Optional[DatasetIngestor] = None) -> TrialTrainer:
+    """Process-wide trainer, sharing the ingestor's frame cache.
+
+    Rebuilt when handed a different ingestor rather than quietly keeping the
+    first one. Silently ignoring the argument means a caller that ingests into
+    its own `DatasetIngestor` then calls `get_trainer(mine)` gets a trainer
+    looking at a *different* cache: the dataset is missing, `get_frame` falls
+    through to a disk reload, and the failure surfaces much later as a confusing
+    error inside `get_frame` rather than as "unknown dataset".
+    """
+    global _trainer, _trainer_ingestor
+    target = ingestor or get_ingestor()
+    if _trainer is None or _trainer_ingestor is not target:
+        _trainer = TrialTrainer(target)
+        _trainer_ingestor = target
+    return _trainer
