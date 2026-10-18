@@ -253,3 +253,172 @@ class FakeGraphService(GraphService):
 
 # Structural check: a silent signature drift in the port should fail here.
 assert isinstance(FakeGraphService(), GraphService)
+
+
+# ---------------------------------------------------------------------------
+# FakeGraphStore for Member B (MEMBER_B.md Section 3.3)
+# ---------------------------------------------------------------------------
+
+from app.models.contracts import (  # noqa: E402
+    DatasetProfile,
+    Decision as HarnessDecision,
+    GraphEdge,
+    GraphNode,
+    GraphSnapshot,
+    LogEntry,
+    RunState,
+    TrialOutcome,
+)
+from app.ports import GraphStore  # noqa: E402
+
+
+class FakeGraphStore:
+    """In-memory GraphStore for the autonomous ML harness.
+
+    Enforces no Cypher, maintains nodes and edges in dicts, supports
+    read_logs(after_seq), write_trial with CITES edges from decision.citations.
+    """
+
+    def __init__(self) -> None:
+        self.datasets: dict[str, DatasetProfile] = {}
+        self.runs: dict[str, RunState] = {}
+        self.trials: dict[str, TrialOutcome] = {}
+        self.decisions: dict[str, HarnessDecision] = {}
+        self.logs: list[LogEntry] = []
+        self.nodes: dict[str, GraphNode] = {}
+        self.edges: list[GraphEdge] = []
+
+    def write_dataset(self, profile: DatasetProfile) -> None:
+        self.datasets[profile.id] = profile
+        self.nodes[profile.id] = GraphNode(
+            id=profile.id,
+            label=profile.name,
+            type="Dataset",
+            props={
+                "n_rows": profile.n_rows,
+                "n_cols": profile.n_cols,
+                "task": profile.task,
+            },
+        )
+
+    def write_run(self, run: RunState) -> None:
+        self.runs[run.run_id] = run
+        self.nodes[run.run_id] = GraphNode(
+            id=run.run_id,
+            label=f"Run {run.run_id[:8]}",
+            type="Run",
+            props={
+                "mode": run.mode,
+                "status": run.status,
+                "metric": run.metric_name,
+                "budget": run.budget,
+            },
+        )
+        if run.dataset_id in self.nodes:
+            self.edges.append(
+                GraphEdge(
+                    source=run.run_id,
+                    target=run.dataset_id,
+                    type="EVALUATED_ON",
+                    props={},
+                )
+            )
+
+    def write_trial(self, trial: TrialOutcome, decision: HarnessDecision) -> None:
+        self.trials[trial.trial_id] = trial
+        self.decisions[decision.decision_id] = decision
+
+        # Trial node
+        self.nodes[trial.trial_id] = GraphNode(
+            id=trial.trial_id,
+            label=f"{trial.model_id} (s{trial.step})",
+            type="Trial",
+            props={
+                "step": trial.step,
+                "model_id": trial.model_id,
+                "status": trial.status,
+                "metric_value": trial.metric_value,
+                "params": trial.params,
+            },
+        )
+        # Decision node
+        self.nodes[decision.decision_id] = GraphNode(
+            id=decision.decision_id,
+            label=f"Decision ({decision.actor})",
+            type="Decision",
+            props={
+                "actor": decision.actor,
+                "strategy": decision.strategy,
+                "why": decision.why,
+                "confidence": decision.confidence,
+            },
+        )
+        # Connect Decision -> Trial
+        self.edges.append(
+            GraphEdge(
+                source=decision.decision_id,
+                target=trial.trial_id,
+                type="PRODUCED",
+                props={},
+            )
+        )
+        # Connect Trial -> Run
+        if trial.run_id in self.nodes:
+            self.edges.append(
+                GraphEdge(
+                    source=trial.trial_id,
+                    target=trial.run_id,
+                    type="PART_OF",
+                    props={},
+                )
+            )
+        # Create CITES edges from decision.citations
+        for cited_id in decision.citations:
+            self.edges.append(
+                GraphEdge(
+                    source=decision.decision_id,
+                    target=cited_id,
+                    type="CITES",
+                    props={},
+                )
+            )
+
+    def write_log(self, entry: LogEntry) -> None:
+        self.logs.append(entry)
+
+    def read_graph(self, run_id: str | None = None, dataset_id: str | None = None) -> GraphSnapshot:
+        if not run_id and not dataset_id:
+            return GraphSnapshot(
+                nodes=list(self.nodes.values())[:500],
+                edges=self.edges[:1000],
+            )
+        matched_node_ids = set()
+        if run_id and run_id in self.nodes:
+            matched_node_ids.add(run_id)
+        if dataset_id and dataset_id in self.nodes:
+            matched_node_ids.add(dataset_id)
+
+        for t in self.trials.values():
+            if run_id and t.run_id == run_id:
+                matched_node_ids.add(t.trial_id)
+        for d in self.decisions.values():
+            if run_id and d.run_id == run_id:
+                matched_node_ids.add(d.decision_id)
+                for c in d.citations:
+                    matched_node_ids.add(c)
+
+        relevant_nodes = [n for n in self.nodes.values() if n.id in matched_node_ids]
+        relevant_edges = [
+            e for e in self.edges if e.source in matched_node_ids and e.target in matched_node_ids
+        ]
+        return GraphSnapshot(nodes=relevant_nodes, edges=relevant_edges)
+
+    def read_logs(self, run_id: str, after_seq: int = 0) -> list[LogEntry]:
+        return [
+            log
+            for log in self.logs
+            if log.run_id == run_id and log.seq > after_seq
+        ]
+
+
+assert isinstance(FakeGraphStore(), GraphStore)

@@ -1,7 +1,13 @@
-"""
-Tests for Model Context Protocol (MCP) server and endpoints.
+"""Tests for Model Context Protocol (MCP) server.
+
+Defined in MEMBER_B.md Section 4 (B4 & B7).
+Asserts:
+- tools/list returns the 6 Member B tools with valid input schemas
+- tools/call succeeds for list_models, list_datasets, list_trials, graph_neighbourhood, explain_trial, best_trials
+- Free-form Cypher queries are strictly rejected with an error
 """
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,16 +21,16 @@ def client():
 
 
 def test_mcp_tools_list_spec():
-    """Verify MCP tools specification conforms to schema."""
+    """Verify MCP tools specification lists all 6 Member B tools."""
     tools = MCP_TOOLS
-    assert len(tools) >= 5
+    assert len(tools) == 6
     names = [t["name"] for t in tools]
-    assert "get_experiment_lineage" in names
-    assert "check_experiment_comparability" in names
-    assert "trace_invalidation_impact" in names
-    assert "query_regime_evidence" in names
-    assert "recommend_next_experiment" in names
-    assert "get_memory_summary" in names
+    assert "list_models" in names
+    assert "list_datasets" in names
+    assert "list_trials" in names
+    assert "graph_neighbourhood" in names
+    assert "explain_trial" in names
+    assert "best_trials" in names
 
 
 def test_mcp_dispatch_initialize():
@@ -33,49 +39,61 @@ def test_mcp_dispatch_initialize():
     assert res["jsonrpc"] == "2.0"
     assert res["id"] == 1
     assert "tools" in res["result"]["capabilities"]
-    assert res["result"]["serverInfo"]["name"] == "runwise-graph-agent-mcp"
+    assert res["result"]["serverInfo"]["name"] == "runwise-mcp"
 
 
-def test_mcp_dispatch_tools_list():
-    """Test MCP tools/list."""
-    res = mcp_server.dispatch({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+def test_mcp_dispatch_tools_call_list_models():
+    """Test calling list_models via MCP."""
+    res = mcp_server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "list_models", "arguments": {}},
+    })
     assert res["id"] == 2
-    assert "tools" in res["result"]
-    assert len(res["result"]["tools"]) >= 5
+    content = json.loads(res["result"]["content"][0]["text"])
+    assert len(content) == 3
+    model_ids = [m["id"] for m in content]
+    assert "xgboost" in model_ids
+    assert "lightgbm" in model_ids
+    assert "random_forest" in model_ids
 
 
-def test_mcp_dispatch_tools_call_memory_summary():
-    """Test calling get_memory_summary via MCP."""
+def test_mcp_dispatch_tools_call_explain_trial():
+    """Test calling explain_trial via MCP."""
     res = mcp_server.dispatch({
         "jsonrpc": "2.0",
         "id": 3,
         "method": "tools/call",
-        "params": {
-            "name": "get_memory_summary",
-            "arguments": {"project_id": "project_demo"},
-        },
+        "params": {"name": "explain_trial", "arguments": {"trial_id": "trial_001"}},
     })
     assert res["id"] == 3
-    assert not res["result"]["isError"]
-    content = res["result"]["content"][0]["text"]
-    assert "episodic" in content
-    assert "semantic" in content
-    assert "procedural" in content
+    content = json.loads(res["result"]["content"][0]["text"])
+    assert "decision" in content
+    assert "citations" in content["decision"]
 
 
-def test_mcp_dispatch_unknown_method():
-    """Test handling of unknown MCP method."""
-    res = mcp_server.dispatch({"jsonrpc": "2.0", "id": 99, "method": "unknown/method", "params": {}})
-    assert res["id"] == 99
+def test_mcp_rejects_freeform_cypher():
+    """Test that free-form Cypher queries are strictly rejected."""
+    res = mcp_server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "run_cypher",
+            "arguments": {"query": "MATCH (n) RETURN n"},
+        },
+    })
+    assert res["id"] == 4
     assert "error" in res
-    assert res["error"]["code"] == -32601
+    assert "Cypher" in res["error"]["message"]
 
 
 def test_mcp_http_endpoints(client):
     """Test MCP HTTP endpoints: /api/v1/mcp/tools and /api/v1/mcp/rpc."""
     tools_res = client.get("/api/v1/mcp/tools")
     assert tools_res.status_code == 200
-    assert "tools" in tools_res.json()
+    assert len(tools_res.json()["tools"]) == 6
 
     rpc_res = client.post("/api/v1/mcp/rpc", json={
         "jsonrpc": "2.0",
@@ -85,4 +103,4 @@ def test_mcp_http_endpoints(client):
     })
     assert rpc_res.status_code == 200
     assert rpc_res.json()["id"] == "http_test_1"
-    assert "tools" in rpc_res.json()["result"]
+    assert len(rpc_res.json()["result"]["tools"]) == 6

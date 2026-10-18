@@ -52,9 +52,17 @@ def bad_request(code: str, message: str, field_name: str | None = None) -> HTTPE
 
 
 def graph_unavailable(message: str, code: str = "graph_service_unavailable") -> HTTPException:
-    """503 for a dependency that is not wired or not reachable.
-
-    The default code is the one HANDOFF.md documents, so a client can branch on it
-    without having to know which layer raised the error.
-    """
+    """503 for a dependency that is not wired or not reachable."""
     return http_error(status.HTTP_503_SERVICE_UNAVAILABLE, code, message)
+
+
+def graph_unreachable(message: str, code: str = "graph_unavailable") -> HTTPException:
+    """503 specifically reporting unreachable graph database."""
+    return http_error(status.HTTP_503_SERVICE_UNAVAILABLE, code, message)
+
+
+def unprocessable(code: str, message: str, field_name: str | None = None) -> HTTPException:
+    """422 for semantically invalid requests (e.g. pr_auc on multiclass)."""
+    return http_error(status.HTTP_422_UNPROCESSABLE_ENTITY, code, message, field_name)
+
+

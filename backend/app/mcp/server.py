@@ -1,350 +1,230 @@
-"""
-Model Context Protocol (MCP) Server for RUNWISE.
+"""Model Context Protocol (MCP) Server for RUNWISE.
 
-Exposes FalkorDB graph algorithms and queries as standard MCP tools:
-- get_experiment_lineage: Multi-hop derivation and dataset version lineage
-- check_experiment_comparability: Rule-based comparability and caveat detection
-- trace_invalidation_impact: Multi-hop defect invalidation propagation
-- query_regime_evidence: Multi-hop SIMILAR_REGIME and FAILED_UNDER subgraph analysis
-- recommend_next_experiment: Evidence-backed hypothesis recommendation under compute budget
-- get_memory_summary: 3-tier agent memory taxonomy (Episodic, Semantic, Procedural)
+Defined in MEMBER_B.md Section 4 (B4 — MCP tool surface).
+Provides six JSON-RPC 2.0 tools for autonomous agents to inspect and act on connected data:
+1. list_models: the 3 models with their full parameter spaces
+2. list_datasets: ingested datasets and their profiles
+3. list_trials: trials for a run, filterable by model / status
+4. graph_neighbourhood: N-hop traversal around a node (act on connected data)
+5. explain_trial: the F7 why record, including citations
+6. best_trials: leaderboard for a run, correct direction per metric
+
+No tool accepts free-form Cypher. MCP is read-only.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import sys
 from typing import Any, Dict, List, Optional
 
-from app.graph.client import graph_client
-from app.graph.repository import GraphRepository
-from app.graph.runtime_queries import runtime_graph_service
-from app.services.comparability import ComparabilityEngine
-from app.services.evidence import partition_by_trust
-from app.services.memory_service import memory_service
-from app.services.recommendations import RecommendationEngine, parse_objective
+from app.api.catalog import SUPPORTED_MODELS
+from app.api.datasets import DATASET_STORE
+from app.api.runs import harness_service
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Tool Specifications (MCP Schema)
-# ---------------------------------------------------------------------------
-MCP_TOOLS = [
+MCP_TOOLS: List[Dict[str, Any]] = [
     {
-        "name": "get_experiment_lineage",
-        "description": "Inspect multi-hop derivation lineage (PARENT_OF) and dataset version usage of an experiment in FalkorDB.",
+        "name": "list_models",
+        "description": "List the 3 supported models (XGBoost, LightGBM, Random Forest) with their full parameter spaces.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "experiment_id": {
-                    "type": "string",
-                    "description": "Identifier of the experiment to inspect (e.g., 'exp_001')",
-                },
-                "project_id": {
-                    "type": "string",
-                    "description": "Project ID (defaults to 'project_demo')",
-                    "default": "project_demo",
-                },
-            },
-            "required": ["experiment_id"],
+            "properties": {},
         },
     },
     {
-        "name": "check_experiment_comparability",
-        "description": "Evaluate whether two experiments in FalkorDB are strictly comparable or confounded under controlled experimental conditions.",
+        "name": "list_datasets",
+        "description": "List all ingested datasets and their profiling summaries.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "experiment_a_id": {
-                    "type": "string",
-                    "description": "First experiment ID",
-                },
-                "experiment_b_id": {
-                    "type": "string",
-                    "description": "Second experiment ID to compare against",
-                },
-                "project_id": {
-                    "type": "string",
-                    "description": "Project ID (defaults to 'project_demo')",
-                    "default": "project_demo",
-                },
-            },
-            "required": ["experiment_a_id", "experiment_b_id"],
+            "properties": {},
         },
     },
     {
-        "name": "trace_invalidation_impact",
-        "description": "Trace multi-hop downstream invalidation through USES_DATASET_VERSION and PARENT_OF derivation paths when a dataset defect or leakage is reported.",
+        "name": "list_trials",
+        "description": "List trials for a specific run, optionally filtered by model_id or status.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "dataset_version_id": {
-                    "type": "string",
-                    "description": "Defective dataset version ID (e.g. 'tabular_fraud_v1')",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Root cause explanation for the correction",
-                    "default": "Data leakage between train and test splits",
-                },
-                "project_id": {
-                    "type": "string",
-                    "description": "Project ID (defaults to 'project_demo')",
-                    "default": "project_demo",
-                },
+                "run_id": {"type": "string", "description": "Identifier of the run"},
+                "model_id": {"type": "string", "description": "Optional model filter (e.g. 'xgboost')"},
+                "status": {"type": "string", "description": "Optional status filter ('SUCCESS' | 'FAILED')"},
             },
-            "required": ["dataset_version_id"],
+            "required": ["run_id"],
         },
     },
     {
-        "name": "query_regime_evidence",
-        "description": "Execute multi-hop Cypher queries across SIMILAR_REGIME and FAILED_UNDER subgraphs in FalkorDB to find relevant priors and avoid known failure regimes.",
+        "name": "graph_neighbourhood",
+        "description": "Multi-hop graph traversal around a specific node (N-hop neighbourhood).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "dataset_name": {
-                    "type": "string",
-                    "description": "Dataset name to find similar regimes for",
-                    "default": "credit_card_fraud",
-                },
+                "node_id": {"type": "string", "description": "Root node ID to inspect"},
+                "hops": {"type": "integer", "description": "Traversal depth (1 to 3)", "default": 1},
             },
-            "required": [],
+            "required": ["node_id"],
         },
     },
     {
-        "name": "recommend_next_experiment",
-        "description": "Generate an evidence-backed hypothesis and controlled experiment recommendation bounded by compute budget (GPU-hours).",
+        "name": "explain_trial",
+        "description": "Retrieve the F7 explainability record (prose justification, citations, and evidence chips) for a trial.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "objective": {
-                    "type": "string",
-                    "description": "Research goal (e.g., 'Optimize PR-AUC for fraud detection under class imbalance')",
-                },
-                "compute_budget_gpu_hours": {
-                    "type": "number",
-                    "description": "Maximum compute budget in GPU hours",
-                    "default": 2.0,
-                },
-                "project_id": {
-                    "type": "string",
-                    "description": "Project ID (defaults to 'project_demo')",
-                    "default": "project_demo",
-                },
+                "trial_id": {"type": "string", "description": "Identifier of the trial to explain"},
             },
-            "required": ["objective"],
+            "required": ["trial_id"],
         },
     },
     {
-        "name": "get_memory_summary",
-        "description": "Query RUNWISE's 3-tier FalkorDB agent memory (Episodic experiment logs, Semantic regime similarity, and Procedural ranking rules).",
+        "name": "best_trials",
+        "description": "Retrieve the ranked trial leaderboard for a run in the correct direction per metric.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "project_id": {
-                    "type": "string",
-                    "description": "Project ID (defaults to 'project_demo')",
-                    "default": "project_demo",
-                },
+                "run_id": {"type": "string", "description": "Identifier of the run"},
+                "metric": {"type": "string", "description": "Target metric to rank by (defaults to run metric)"},
             },
-            "required": [],
+            "required": ["run_id"],
         },
     },
 ]
 
 
 class MCPServer:
-    """Model Context Protocol (MCP) server exposing FalkorDB agent tools."""
-
-    def __init__(self, repo: Optional[GraphRepository] = None):
-        self.repo = repo or GraphRepository(graph_client)
-        self.engine = RecommendationEngine(self.repo)
-        self.comparability = ComparabilityEngine(self.repo)
+    """JSON-RPC 2.0 handler for the 6 Member B MCP tools."""
 
     def dispatch(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Handles a standard JSON-RPC 2.0 MCP request synchronously or asynchronously."""
-        req_id = request.get("id")
-        method = request.get("method")
-        params = request.get("params", {})
+        msg_id = request.get("id", 1)
+        method = request.get("method", "")
 
         if method == "initialize":
             return {
                 "jsonrpc": "2.0",
-                "id": req_id,
+                "id": msg_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {"listChanged": False},
-                    },
-                    "serverInfo": {
-                        "name": "runwise-graph-agent-mcp",
-                        "version": "1.0.0",
-                    },
+                    "serverInfo": {"name": "runwise-mcp", "version": "1.0.0"},
+                    "capabilities": {"tools": {}},
                 },
             }
 
-        elif method in ("notifications/initialized", "initialized"):
-            return {}
-
-        elif method == "ping":
-            return {"jsonrpc": "2.0", "id": req_id, "result": {}}
-
-        elif method == "tools/list":
+        if method == "tools/list":
             return {
                 "jsonrpc": "2.0",
-                "id": req_id,
+                "id": msg_id,
                 "result": {"tools": MCP_TOOLS},
             }
 
-        elif method == "tools/call":
-            tool_name = params.get("name")
-            tool_args = params.get("arguments", {})
-            try:
-                res_content = self.call_tool(tool_name, tool_args)
+        if method == "tools/call":
+            params = request.get("params", {})
+            tool_name = params.get("name", "")
+            arguments = params.get("arguments", {})
+
+            # Explicit rule: Free-form Cypher is rejected
+            if "cypher" in tool_name.lower() or "cypher" in arguments or "query" in arguments:
                 return {
                     "jsonrpc": "2.0",
-                    "id": req_id,
-                    "result": {
-                        "content": [{"type": "text", "text": json.dumps(res_content, indent=2)}],
-                        "isError": False,
-                    },
-                }
-            except Exception as e:
-                logger.exception("Error executing MCP tool '%s': %s", tool_name, e)
-                return {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "result": {
-                        "content": [{"type": "text", "text": f"Tool execution failed: {str(e)}"}],
-                        "isError": True,
+                    "id": msg_id,
+                    "error": {
+                        "code": -32600,
+                        "message": "Free-form Cypher queries are strictly prohibited in RUNWISE MCP. Use designated domain tools.",
                     },
                 }
 
-        else:
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {
-                    "code": -32601,
-                    "message": f"Method '{method}' not found",
-                },
-            }
-
-    def call_tool(self, name: str, args: Dict[str, Any]) -> Any:
-        """Executes the requested graph tool."""
-        project_id = args.get("project_id", "project_demo")
-
-        if name == "get_experiment_lineage":
-            exp_id = args["experiment_id"]
-            lineage = self.repo.get_experiment_lineage(exp_id, project_id=project_id)
-            if not lineage:
-                return {"found": False, "message": f"Experiment '{exp_id}' not found in project '{project_id}'"}
-            return {
-                "found": True,
-                "experiment_id": exp_id,
-                "nodes": [n.model_dump() for n in lineage.nodes],
-                "edges": [e.model_dump() for e in lineage.edges],
-            }
-
-        elif name == "check_experiment_comparability":
-            exp_a = args["experiment_a_id"]
-            exp_b = args["experiment_b_id"]
-            assessment = self.comparability.assess(exp_a, exp_b, project_id=project_id)
-            return {
-                "experiment_a": exp_a,
-                "experiment_b": exp_b,
-                "status": assessment.status.value,
-                "confidence": assessment.confidence,
-                "caveats": assessment.caveats,
-                "summary": assessment.summary,
-            }
-
-        elif name == "trace_invalidation_impact":
-            ds_ver = args["dataset_version_id"]
-            reason = args.get("reason", "Defect discovered in dataset")
-            # Dry run traversal or query existing impact
-            impact = self.repo.get_correction_impact(f"corr_{ds_ver}")
-            if not impact:
-                # Direct traversal check
-                exp_runs = self.repo.list_experiments(project_id, dataset_version_id=ds_ver)
-                return {
-                    "dataset_version_id": ds_ver,
-                    "reason": reason,
-                    "directly_affected_runs": [e.id for e in exp_runs],
-                    "status": "simulated_traversal",
-                }
-            return {
-                "correction_id": impact.correction_id,
-                "directly_affected_experiments": impact.directly_affected_experiments,
-                "transitively_affected_experiments": impact.transitively_affected_experiments,
-                "total_affected": len(impact.directly_affected_experiments) + len(impact.transitively_affected_experiments),
-            }
-
-        elif name == "query_regime_evidence":
-            ds_name = args.get("dataset_name", "credit_card_fraud")
-            similar = runtime_graph_service.query_similar_regimes(ds_name)
-            failed = runtime_graph_service.query_failed_subgraphs(ds_name)
-            return {
-                "dataset_name": ds_name,
-                "similar_regimes_count": len(similar),
-                "similar_regimes": similar,
-                "failed_subgraphs_count": len(failed),
-                "failed_subgraphs": failed,
-            }
-
-        elif name == "recommend_next_experiment":
-            obj_text = args["objective"]
-            budget = float(args.get("compute_budget_gpu_hours", 2.0))
-            recs = self.engine.recommend(
-                project_id=project_id,
-                objective=obj_text,
-                compute_budget_gpu_hours=budget,
-            )
-            return {
-                "objective": obj_text,
-                "budget_gpu_hours": budget,
-                "recommendation_count": len(recs),
-                "recommendations": [r.model_dump() for r in recs],
-            }
-
-        elif name == "get_memory_summary":
-            return memory_service.get_memory_breakdown(project_id)
-
-        else:
-            raise ValueError(f"Unknown tool name: {name}")
-
-    async def run_stdio(self) -> None:
-        """Runs the MCP server over standard input / output (stdio transport)."""
-        logger.info("RUNWISE MCP Server started in stdio transport mode.")
-        loop = asyncio.get_event_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-
-        while True:
-            line = await reader.readline()
-            if not line:
-                break
-            line_str = line.decode("utf-8").strip()
-            if not line_str:
-                continue
             try:
-                req = json.loads(line_str)
-                resp = self.dispatch(req)
-                if resp:
-                    sys.stdout.write(json.dumps(resp) + "\n")
-                    sys.stdout.flush()
-            except Exception as e:
-                err_resp = {
+                res = self.execute_tool(tool_name, arguments)
+                return {
                     "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32700, "message": f"Parse error: {e}"},
+                    "id": msg_id,
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(res, indent=2)}]
+                    },
                 }
-                sys.stdout.write(json.dumps(err_resp) + "\n")
-                sys.stdout.flush()
+            except Exception as exc:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "error": {"code": -32000, "message": str(exc)},
+                }
+
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32601, "message": f"Method '{method}' not found"},
+        }
+
+    def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
+        if tool_name == "list_models":
+            return [m.model_dump() for m in SUPPORTED_MODELS]
+
+        if tool_name == "list_datasets":
+            return [p.model_dump() for p, _ in DATASET_STORE.values()]
+
+        if tool_name == "list_trials":
+            run_id = args.get("run_id")
+            model_id = args.get("model_id")
+            status = args.get("status")
+
+            h_run = harness_service.get_run(run_id)
+            if not h_run:
+                # Check graph store
+                snapshot = harness_service.graph_store.read_graph(run_id=run_id)
+                trials = [n.props for n in snapshot.nodes if n.type == "Trial"]
+            else:
+                snapshot = harness_service.graph_store.read_graph(run_id=run_id)
+                trials = [n.props for n in snapshot.nodes if n.type == "Trial"]
+
+            if model_id:
+                trials = [t for t in trials if t.get("model_id") == model_id]
+            if status:
+                trials = [t for t in trials if t.get("status") == status]
+            return trials
+
+        if tool_name == "graph_neighbourhood":
+            node_id = args.get("node_id", "")
+            hops = min(max(args.get("hops", 1), 1), 3)
+
+            snapshot = harness_service.graph_store.read_graph()
+            visited_nodes = {node_id}
+            current_level = {node_id}
+
+            for _ in range(hops):
+                next_level = set()
+                for edge in snapshot.edges:
+                    if edge.source in current_level:
+                        next_level.add(edge.target)
+                    elif edge.target in current_level:
+                        next_level.add(edge.source)
+                visited_nodes.update(next_level)
+                current_level = next_level
+
+            nodes = [n.model_dump() for n in snapshot.nodes if n.id in visited_nodes]
+            edges = [
+                e.model_dump()
+                for e in snapshot.edges
+                if e.source in visited_nodes and e.target in visited_nodes
+            ]
+            return {"nodes": nodes, "edges": edges, "hops": hops}
+
+        if tool_name == "explain_trial":
+            trial_id = args.get("trial_id", "")
+            why_record = harness_service.decision_maker.explain(trial_id)
+            return why_record.model_dump()
+
+        if tool_name == "best_trials":
+            run_id = args.get("run_id", "")
+            metric = args.get("metric", "f1_macro")
+            snapshot = harness_service.graph_store.read_graph(run_id=run_id)
+            trials = [n.props for n in snapshot.nodes if n.type == "Trial" and n.props.get("metric_value") is not None]
+
+            # Rank higher is better for accuracy, f1_macro, roc_auc, pr_auc; lower for loss
+            reverse = "loss" not in metric.lower()
+            trials.sort(key=lambda x: x.get("metric_value", 0.0), reverse=reverse)
+            return trials
+
+        raise ValueError(f"Unknown tool '{tool_name}'")
 
 
 mcp_server = MCPServer()

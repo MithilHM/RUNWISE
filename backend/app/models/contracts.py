@@ -873,3 +873,183 @@ class ProjectGraphResponse(BaseModel):
     """True when the node budget cut the traversal, so the UI can say the graph is
     partial instead of implying the project is fully connected."""
     node_limit: int = 500
+
+
+# ---------------------------------------------------------------------------
+# Member B — Autonomous ML Harness Contracts (MEMBER_B.md Section 3.1 & 3.2)
+# ---------------------------------------------------------------------------
+
+from typing import Literal  # noqa: E402
+
+
+class ColumnProfile(BaseModel):
+    name: str
+    dtype: str  # "float64" | "int64" | "object" | ...
+    role: Literal["feature", "target"]
+    n_missing: int = 0
+    n_unique: int = 0
+
+
+class DroppedColumn(BaseModel):
+    name: str
+    reason: Literal["constant", "all_null", "high_cardinality_id", "leakage"]
+
+
+class DatasetProfile(BaseModel):
+    id: str  # ds_<8hex>
+    name: str  # original filename
+    n_rows: int
+    n_cols: int
+    task: Literal["binary", "multiclass"]
+    n_classes: int
+    class_balance: dict[str, float] = Field(default_factory=dict)
+    split_hash: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    target_inferred: bool = True
+    columns: list[ColumnProfile] = Field(default_factory=list)
+    dropped_columns: list[DroppedColumn] = Field(default_factory=list)
+
+
+class ParamSpec(BaseModel):
+    name: str
+    kind: Literal["int", "float", "categorical", "bool", "int_or_null"]
+    low: float | None = None
+    high: float | None = None
+    step: float | None = None
+    log_scale: bool = False
+    choices: list[Any] | None = None
+    default: Any = None
+
+
+class ModelSpec(BaseModel):
+    id: str  # "xgboost" | "lightgbm" | "random_forest"
+    name: str  # "XGBoost"
+    library: str  # "xgboost" | "lightgbm" | "sklearn.ensemble"
+    description: str
+    params: list[ParamSpec] = Field(default_factory=list)
+
+
+class RunCreate(BaseModel):
+    dataset_id: str
+    model_ids: list[str]  # subset of ModelSpec.id, 1..3
+    mode: Literal["autonomous", "human"]
+    metric: Literal["accuracy", "f1_macro", "roc_auc", "pr_auc"]
+    budget: int = Field(ge=1, le=200, default=10)
+
+
+class TrialOutcome(BaseModel):
+    trial_id: str
+    run_id: str
+    step: int
+    model_id: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["SUCCESS", "FAILED"]
+    metric_name: str
+    metric_value: float | None = None
+    metrics: dict[str, float | None] = Field(default_factory=dict)
+    failure_reason: str | None = None
+    duration_sec: float = 0.0
+    n_features: int = 0
+    seed: int = 42
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class RunState(BaseModel):
+    run_id: str
+    dataset_id: str
+    mode: Literal["autonomous", "human"]
+    status: Literal[
+        "IDLE",
+        "PROPOSING",
+        "AWAITING_REVIEW",
+        "EXECUTING",
+        "MUTATING",
+        "COMPLETED",
+        "PAUSED",
+        "FAILED",
+    ]
+    step: int = 0
+    budget: int = 10
+    metric_name: str
+    best_metric: float | None = None
+    best_trial_id: str | None = None
+    model_ids: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    best_trial: TrialOutcome | None = None
+
+
+class Proposal(BaseModel):
+    proposal_id: str
+    step: int
+    model_id: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    why: str
+    strategy: str
+    hypothesis: str
+    confidence: float
+    citations: list[str] = Field(default_factory=list)
+
+
+class HarnessDecision(BaseModel):
+    decision_id: str
+    run_id: str
+    step: int
+    trial_id: str
+    actor: Literal["laya", "researcher"]
+    strategy: str
+    why: str
+    hypothesis: str
+    confidence: float
+    citations: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class EvidenceItem(BaseModel):
+    kind: Literal["Model", "Param", "Setting", "Trial", "Dataset"]
+    id: str
+    label: str
+    detail: str
+
+
+class WhyRecord(BaseModel):
+    decision: HarnessDecision
+    config: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceItem] = Field(default_factory=list)
+    highlight: list[str] = Field(default_factory=list)
+
+
+
+class LogEntry(BaseModel):
+    seq: int
+    run_id: str
+    step: int
+    level: str
+    stage: str
+    message: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+    ts: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class LogEvent(BaseModel):
+    type: Literal["log", "decision", "trial", "graph_delta", "status"]
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    type: str
+    props: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    type: str
+    props: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphSnapshot(BaseModel):
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)

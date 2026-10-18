@@ -1,276 +1,158 @@
-# RUNWISE — AI Research Experiment Copilot
+# RUNWISE — Autonomous ML Harness
 
-> 🔗 **Repository:** [https://github.com/MithilHM/RUNWISE](https://github.com/MithilHM/RUNWISE)  
-> 📹 **Demo Video:** [Watch the 3-Minute Demo Video](https://youtu.be/your-demo-video-link) *(Demo script in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md))*  
-
----
-
-RUNWISE turns scattered ML experiment histories into a graph-backed research intelligence platform powered by **FalkorDB**, with an autonomous agent runtime (**Laya**), a **FastAPI** backend, and a **React + TypeScript** frontend.
-
-### Its Defining Behaviors:
-1. **Multi-Hop Invalidation Cascade:** When a dataset defect or leakage is reported, RUNWISE uses multi-hop Cypher traversals to invalidate directly affected runs and all **transitively derived lineage runs** — even runs trained on a different dataset version that inherited the flaw.
-2. **Persistent Multi-Agent Memory & Handoffs:** Preserves 3 tiers of memory (**Episodic**, **Semantic**, **Procedural**) in FalkorDB, persists conversational history across sessions, and orchestrates atomic handoffs between planning, execution, and auditing agents with **sub-3ms latency** and **240+ ops/sec throughput**.
-3. **Model Context Protocol (MCP) Server:** Graph algorithms and queries are exposed as standard MCP tools for universal tool selection by any AI agent (Claude Desktop, Cursor, Antigravity, or custom LLM agents).
+> **An autonomous ML harness.** Drop in one static CSV. Pick from 3 models. Every hyperparameter, every trial, every decision, and every log line is a node in **FalkorDB**. The harness either runs itself or stops at every step and waits for you. Ask it *"why this model?"* and it answers in prose **and lights up the exact graph nodes that justify the answer**.
 
 ---
 
-## 1. System Capabilities & Architecture
+## 1. The Seven Features
 
-| Core Capability | Architectural Focus | How RUNWISE Delivers It |
+| # | Feature | Description |
 |---|---|---|
-| 🕵️ **Agents Acting on Connected Graph Data** | • Multi-hop reasoning<br>• Graph queries & algorithms as agent tools<br>• Tool selection through MCP<br>• Actions based on graph topology<br>• Explainable results | • Traverses `(DatasetVersion)<-[:USES_DATASET_VERSION]-(Exp)-[:PARENT_OF*]->(DerivedExp)` to detect compromised lineage.<br>• Sandboxed ML worker automatically executes trials and mutates FalkorDB.<br>• Full Model Context Protocol (MCP) server (`scripts/run_mcp_server.py`) with 6 graph tools.<br>• 100% citation coverage and epistemic grades (`observed`, `inferred`, `disputed`). |
-| 🤖 **Agent Memory and Coordination** | • Episodic, semantic, procedural memory<br>• Persistent conversation history<br>• Shared state & handoffs between agents<br>• High-concurrency reads and writes<br>• Separate memory per user/tenant | • Explicit 3-tier memory engine (`/api/v1/projects/{id}/memory`).<br>• Graph-backed conversation persistence (`(:ChatSession)-[:HAS_MESSAGE]->(:ChatMessage)`).<br>• Explicit agent handoff graph (`CandidatePlanner` ➔ `LayaEvaluator` ➔ `SandboxedWorker` ➔ `GraphAuditor`).<br>• Benchmark: **243.8 ops/sec throughput, P50 2.16ms latency, 0.0% error rate** ([`docs/CONCURRENCY.md`](docs/CONCURRENCY.md)).<br>• Scoped per `project_id` inside Cypher queries. |
+| **F1** | **Static CSV Intake** | Upload static tabular CSV, profile column datatypes, distributions, infer/confirm target column, and create stratified split. |
+| **F2** | **Three Models** | `RandomForest`, `XGBoost`, and `LightGBM`, each exposing a complete, typed hyperparameter space (`ParamSpec`). |
+| **F3** | **Hyperparameters Mapped to Graph** | Dynamic hyperparameter spaces mapped into FalkorDB — parameter settings and values recorded with structured citations. |
+| **F4** | **Human Intervention or Autonomy** | Dual-mode state machine (`autonomous` or `human review`). Human mode stops at `AWAITING_REVIEW` after candidate proposals for researcher approval, override, or rejection. |
+| **F5** | **Force-Directed Dependency Graph** | Left-to-right layered force-directed graph (`Dataset → Run → Model → Setting → Trial → Decision`), clickable, interactive, and shaded by metric. |
+| **F6** | **Live Logs & Events** | Sequential log persistence with real-time Server-Sent Events (SSE) streaming and historical catch-up. |
+| **F7** | **"Why the Model?" & Node Highlighting** | Transparent explainability records (`WhyRecord`) with prose justification, strategy, hypothesis, and bidirectional citation node highlighting. |
 
 ---
 
 ## 2. Graph Data Model
 
-RUNWISE persists an explicit lineage and memory graph in FalkorDB rather than flat logs.
-
-### Graph Architecture Diagram
+RUNWISE persists every trial, setting, and decision directly into **FalkorDB**:
 
 ```mermaid
-graph TD
-    Project["Project<br><i>id, name</i>"]
-    ChatSession["ChatSession<br><i>id, title, updated_at</i>"]
-    ChatMessage["ChatMessage<br><i>id, role, content</i>"]
-    
-    Dataset["Dataset<br><i>id, domain, imbalance_ratio</i>"]
-    DatasetVersion["DatasetVersion<br><i>id, version, quality_status</i>"]
-    
-    Experiment["Experiment<br><i>id, model_family, status</i>"]
-    Configuration["Configuration<br><i>id, config_hash, json</i>"]
-    Metric["Metric<br><i>name, value, split</i>"]
-    Hypothesis["Hypothesis<br><i>id, text</i>"]
-    FailureReason["FailureReason<br><i>reason, category</i>"]
-    
-    Correction["Correction<br><i>id, description, status</i>"]
-    ReviewItem["ReviewItem<br><i>id, reason, status</i>"]
-    Agent["Agent<br><i>name</i>"]
+graph LR
+    Dataset["Dataset<br><i>id, name, rows, cols</i>"]
+    Run["Run<br><i>run_id, mode, metric, budget</i>"]
+    Model["Model<br><i>model_id, library</i>"]
+    Param["Param<br><i>name, kind, bounds</i>"]
+    Setting["Setting<br><i>value</i>"]
+    Trial["Trial<br><i>trial_id, step, metric_value, status</i>"]
+    Decision["Decision<br><i>decision_id, actor, strategy, why</i>"]
 
-    Project -->|CONTAINS_SESSION| ChatSession
-    ChatSession -->|HAS_MESSAGE| ChatMessage
-    ChatMessage -.->|CITES_EXPERIMENT| Experiment
-
-    Project -->|CONTAINS| Experiment
-    Experiment -->|USES_CONFIG| Configuration
-    Experiment -->|USES_DATASET_VERSION| DatasetVersion
-    DatasetVersion -->|VERSION_OF| Dataset
-    Experiment -->|PRODUCES_METRIC| Metric
-    Experiment -->|DERIVED_FROM| Hypothesis
-    Experiment -->|FAILED_UNDER| FailureReason
-    Experiment -->|PARENT_OF| Experiment
-    
-    Dataset -->|SIMILAR_REGIME| Dataset
-    
-    Correction -->|AFFECTS| DatasetVersion
-    Correction -->|AFFECTS| Experiment
-    ReviewItem -->|CONCERNS| Experiment
-    ReviewItem -->|RAISED_BY| Correction
-    
-    Agent -->|HANDED_OFF| Agent
+    Run -->|EVALUATED_ON| Dataset
+    Run -->|EXPLORES| Model
+    Model -->|HAS_PARAM| Param
+    Param -->|CONFIGURED_WITH| Setting
+    Trial -->|PART_OF| Run
+    Decision -->|PRODUCED| Trial
+    Decision -.->|CITES| Setting
+    Decision -.->|CITES| Trial
+    Decision -.->|CITES| Dataset
 ```
 
-### Node Labels & Indices
-
-| Node Label | Key Properties | Purpose |
-|---|---|---|
-| `Project` | `id` (indexed), `name`, `description` | Multi-tenant project boundary. |
-| `Experiment` | `id` (indexed), `project_id` (indexed), `model_family`, `status`, `quality_status` | ML training and evaluation run records. |
-| `Dataset` | `id` (indexed), `name`, `domain`, `imbalance_ratio` | Data regime and problem domain. |
-| `DatasetVersion` | `id` (indexed), `dataset_id` (indexed), `version`, `quality_status` | Specific data snapshot or partition. |
-| `Configuration` | `id` (indexed), `config_hash` (indexed), `canonical_json` | Deterministic hyperparameter record. |
-| `Metric` | `id` (indexed), `experiment_id` (indexed), `name`, `value` | Measured results (PR-AUC, Accuracy, Loss). |
-| `Hypothesis` | `id` (indexed), `text`, `status` | Scientific proposition tested by trials. |
-| `FailureReason` | `id`, `reason`, `category` | Failure subgraphs isolated to avoid repeating errors. |
-| `ChatSession` | `id` (indexed), `project_id` (indexed), `title`, `updated_at` | Persistent conversation session in FalkorDB. |
-| `ChatMessage` | `id` (indexed), `session_id` (indexed), `role`, `content`, `timestamp` | Historical chat interaction with citation links. |
-| `Agent` | `name` (indexed) | Autonomous agent nodes for coordination handoffs. |
-| `Correction` | `id` (indexed), `source_id`, `description`, `status` | Invalidation audit record. |
-| `ReviewItem` | `id` (indexed), `reason`, `status`, `experiment_id` | Human-in-the-loop revalidation queue item. |
+### Node Labels
+- `Dataset`: Profiling metrics, row/column counts, class balance, and task type.
+- `Run`: State machine run metadata (`autonomous` vs `human`, budget, metric, status).
+- `Model`: Supported algorithms (`xgboost`, `lightgbm`, `random_forest`).
+- `Trial`: Concrete training executions with duration, hyperparameters, and metric outcomes.
+- `Decision`: Laya or researcher decisions with strategy, hypothesis, prose justification, and citations.
 
 ---
 
-## 3. Core Cypher Queries & Graph Algorithms
+## 3. Harness State Machine
 
-RUNWISE depends on targeted Cypher traversals implemented in `backend/app/graph/`:
+The harness follows an explicit, guarded lifecycle:
 
-### 1. Multi-Hop Lineage Invalidation Cascade
-*Follows both direct dataset consumers and all transitive derived lineage runs:*
-```cypher
-MATCH (d:DatasetVersion {id: $dataset_version_id})
-OPTIONAL MATCH (d)<-[:USES_DATASET_VERSION]-(direct:Experiment)
-OPTIONAL MATCH (direct)-[:PARENT_OF*1..6]->(transitively_derived:Experiment)
-SET direct.quality_status = 'disputed',
-    transitively_derived.quality_status = 'needs_review'
-RETURN collect(DISTINCT direct.id) AS direct_ids,
-       collect(DISTINCT transitively_derived.id) AS derived_ids
+```
+IDLE → PROPOSING
+PROPOSING ──autonomous──→ EXECUTING
+PROPOSING ──human───────→ AWAITING_REVIEW ──approve────────────→ EXECUTING
+                                        ──approve(edited)───→ EXECUTING
+                                        ──reject────────────→ PROPOSING (step+1)
+EXECUTING → MUTATING → PROPOSING (step+1)
+PROPOSING ──step >= budget──→ COMPLETED
+any state ──exception──→ FAILED
+any state ──POST /pause──→ PAUSED ;  POST /resume──→ back to PROPOSING
 ```
 
-### 2. Multi-Hop Regime Discovery & Prior Evidence
-*Traverses cross-dataset regime similarities to recommend hyperparameters:*
-```cypher
-MATCH (target:Dataset {name: $dataset_name})-[r:SIMILAR_REGIME]-(peer:Dataset)
-MATCH (peer)<-[:EVALUATED_ON]-(e:Experiment)
-WHERE e.status = 'completed'
-RETURN peer.name AS peer_dataset,
-       r.similarity AS similarity,
-       r.reason AS rationale,
-       e.id AS prior_experiment_id,
-       e.learning_rate AS lr,
-       e.max_depth AS max_depth,
-       e.val_pr_auc AS score
-ORDER BY r.similarity DESC, e.val_pr_auc DESC
-LIMIT 5
-```
-
-### 3. Failure Subgraph Avoidance
-*Identifies forbidden hyperparameter regimes that repeatedly failed in the past:*
-```cypher
-MATCH (d:Dataset {name: $dataset_name})<-[:EVALUATED_ON]-(e:Experiment)-[:FAILED_UNDER]->(f:FailureReason)
-RETURN e.id AS failed_experiment,
-       f.reason AS failure_reason,
-       f.category AS failure_category,
-       e.learning_rate AS invalid_lr,
-       e.max_depth AS invalid_depth
-```
-
-### 4. Multi-Agent Coordination Handoffs
-*Atomically tracks state handoffs between autonomous agents:*
-```cypher
-MERGE (a1:Agent {name: $from_agent})
-MERGE (a2:Agent {name: $to_agent})
-CREATE (a1)-[h:HANDED_OFF {
-    id: $handoff_id,
-    run_id: $run_id,
-    step: $step,
-    state: $state,
-    metadata: $metadata,
-    timestamp: $now
-}]->(a2)
-RETURN h.id, a1.name, a2.name, h.step, h.state, h.timestamp
-```
-
-### 5. Persistent Chat Memory with Experiment Citations
-*Preserves conversation history linked to grounded graph records:*
-```cypher
-MATCH (s:ChatSession {id: $session_id, project_id: $project_id})-[:HAS_MESSAGE]->(m:ChatMessage)
-OPTIONAL MATCH (m)-[:CITES_EXPERIMENT]->(e:Experiment)
-RETURN m.id AS id, m.role AS role, m.content AS content,
-       m.mode AS mode, m.llm_used AS llm_used, m.timestamp AS timestamp,
-       collect(DISTINCT e.id) AS citations
-ORDER BY m.timestamp ASC
-```
+- **Autonomous Mode:** Runs the requested trial budget end-to-end without blocking.
+- **Human Review Mode:** Stops at `AWAITING_REVIEW` after proposing. Does not execute training until the researcher approves (with or without hyperparameter overrides) or rejects.
 
 ---
 
-## 4. Quickstart & Local Setup
+## 4. Model Context Protocol (MCP) Server
 
-### Prerequisites
-- **Python 3.10+**
-- **Docker** (for FalkorDB)
-- **Node.js 20+**
+RUNWISE includes an MCP (Model Context Protocol) JSON-RPC 2.0 server (`/api/v1/mcp/rpc` and `/api/v1/mcp/tools`) providing standard graph tools for AI agents:
 
-### 1-Command Demo Preparation
-This command starts FalkorDB, seeds 53 synthetic runs across multiple model families, runs the correction cascade, and executes smoke checks:
-```bash
-python scripts/prepare_demo.py
-```
+| Tool | Purpose |
+|---|---|
+| `list_models` | Lists the 3 models with their full parameter spaces (`ParamSpec`). |
+| `list_datasets` | Lists ingested datasets and profiling summaries. |
+| `list_trials` | Lists evaluated trials for a run, filterable by model or status. |
+| `graph_neighbourhood` | Traverses N-hop subgraph topology around any node. |
+| `explain_trial` | Retrieves the F7 explainability record with citations. |
+| `best_trials` | Retrieves the trial leaderboard ranked in the correct metric direction. |
+
+*Note: Free-form Cypher injection is strictly rejected to preserve security and graph integrity.*
 
 ---
 
-### Step-by-Step Manual Setup
+## 5. API Reference
 
-#### 1. Start FalkorDB Container
+| Method | Path | Description | Returns |
+|---|---|---|---|
+| `GET` | `/health` | FalkorDB and app health check | `{status, app, database}` |
+| `GET` | `/api/v1/catalog/models` | List models and parameter specifications | `{models: ModelSpec[], metrics: [...]}` |
+| `POST` | `/api/v1/datasets` | Multipart upload and CSV profiling | `DatasetProfile` |
+| `GET` | `/api/v1/datasets/{id}` | Get dataset profiling metadata | `DatasetProfile` |
+| `POST` | `/api/v1/datasets/{id}/confirm-target` | Confirm or change target column | `DatasetProfile` |
+| `GET` | `/api/v1/runs` | List all harness runs | `{runs: RunState[]}` |
+| `POST` | `/api/v1/runs` | Create and launch harness run | `RunState` |
+| `GET` | `/api/v1/runs/{id}` | Get run state with best trial | `RunState` |
+| `POST` | `/api/v1/runs/{id}/pause` | Pause run after active trial | `RunState` |
+| `POST` | `/api/v1/runs/{id}/resume` | Resume paused run | `RunState` |
+| `GET` | `/api/v1/runs/{id}/pending` | Get proposal under human review | `{pending: Proposal \| null}` |
+| `POST` | `/api/v1/runs/{id}/decide` | Submit human decision (`approve`/`reject`) | `RunState` |
+| `GET` | `/api/v1/runs/{id}/why` | Retrieve F7 explainability record | `WhyRecord` |
+| `GET` | `/api/v1/runs/{id}/logs` | Fetch sequential log entries | `{entries: LogEntry[]}` |
+| `GET` | `/api/v1/runs/{id}/events` | Real-time Server-Sent Events (SSE) stream | `text/event-stream` |
+| `GET` | `/api/v1/graph` | Force-directed graph snapshot | `GraphSnapshot` |
+
+---
+
+## 6. Running Locally
+
+### 1. Start FalkorDB
 ```bash
 docker compose up -d
 ```
-FalkorDB starts on `127.0.0.1:6379`.
 
-#### 2. Install Backend Dependencies
+### 2. Start the Backend API
 ```bash
 pip install -r requirements.txt
-```
-
-#### 3. Configure Environment
-```bash
-cp .env.example .env
-```
-*Note: RUNWISE runs 100% deterministically without requiring an LLM API key.*
-
-#### 4. Seed Graph Data
-```bash
-python scripts/seed_demo.py --reset
-```
-
-#### 5. Start Backend Server
-```bash
-cd backend
 uvicorn app.main:app --reload --port 8000
 ```
-- Interactive Swagger API docs: `http://localhost:8000/docs`
-- MCP Tools endpoint: `http://localhost:8000/api/v1/mcp/tools`
+*API interactive documentation is available at `http://localhost:8000/docs`.*
 
-#### 6. Start Frontend Web Application
+To run in offline/fake mode without a FalkorDB container:
+```bash
+RUNWISE_FAKE=1 uvicorn app.main:app --port 8000
+```
+
+### 3. Start the Frontend Console
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
+*Console opens at `http://localhost:5173`.*
 
 ---
 
-## 5. Verification & Benchmarks
+## 7. Running the Test Suites
 
-### 1. Run Complete Test Suites
+### Backend Tests (pytest)
 ```bash
-# Backend: 197 unit and integration tests (FalkorDB graph, comparability, MCP, memory, runtime)
-python -m pytest backend/tests -v
-
-# Frontend: 40 tests (Vitest + React Testing Library)
-cd frontend && npm test -- --run
+python -m pytest backend/tests -q
 ```
+Runs 210 unit and integration tests covering the harness state machine, API endpoints, FalkorDB queries, and MCP tools.
 
-### 2. Run Model Context Protocol (MCP) Server & Test Client
+### Frontend Tests (vitest)
 ```bash
-# Test MCP tool discovery and execution
-python scripts/test_mcp_client.py
-
-# Launch standalone stdio MCP server for Claude Desktop / Cursor / Antigravity
-python scripts/run_mcp_server.py
+cd frontend
+npm test -- --run
 ```
-
-### 3. Run High-Concurrency Benchmark
-```bash
-python scripts/bench_concurrency.py
-```
-*Measures concurrent multi-agent read/write throughput and latency (results saved to [`docs/CONCURRENCY.md`](docs/CONCURRENCY.md)).*
-
-### 4. Run Quantitative Lineage Evaluation
-```bash
-python scripts/evaluate.py
-```
-*Measures FalkorDB graph traversal recall vs shallow search baseline (100% recall vs 60%, +40 pts advantage; see [`docs/EVALUATION.md`](docs/EVALUATION.md)).*
-
----
-
-## 6. What the Application Screens Do
-
-| Route | Name | Focus |
-|---|---|---|
-| `/` | **Workspace** | Explore, filter, chart 53 runs, and inspect detailed comparability caveats. |
-| `/copilot` | **Research Copilot** | Persistent chat sessions, 3-tier memory drawer (Episodic, Semantic, Procedural), and budget-bounded experiment proposals. |
-| `/runtime` | **Autonomous Runtime** | Closed-loop graph-guided optimizer (**Laya**), live execution tree, real-time SSE stream, and comparative ablation scoreboard. |
-| `/lineage` | **Lineage & Impact** | Interactive derivation graph, dataset defect reporting, and human revalidation queue. |
-
----
-
-## 7. Submission Checklist Summary
-
-- [x] **Public Source Code Repository:** [https://github.com/MithilHM/RUNWISE](https://github.com/MithilHM/RUNWISE)
-- [x] **Setup Instructions & Graph Data Model:** Detailed in Sections 2, 3, and 4 above.
-- [x] **Cypher Queries & Graph Algorithms:** Documented in Section 3 and [`docs/GRAPH_SCHEMA.md`](docs/GRAPH_SCHEMA.md).
-- [x] **Full-Stack Autonomous System:** End-to-end graph lineage, agent memory, and closed-loop optimization.
-- [x] **Local Execution & Verification:** Complete 1-click & manual setup instructions provided.
-- [x] **Demo Video Presentation Script:** Detailed 3-minute script in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+Runs 43 component tests covering parameter clamping, leaderboard ranking directions, evidence highlighting, and SSE log streaming.

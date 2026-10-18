@@ -24,6 +24,11 @@ from app.api.recommendations import router as recommendations_router
 from app.api.copilot import router as copilot_router
 from app.api.runtime import router as runtime_router
 from app.api.mcp import router as mcp_router
+from app.api.catalog import router as catalog_router
+from app.api.datasets import router as datasets_router
+from app.api.runs import router as runs_router
+from app.api.graph import router as graph_router
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("runwise")
@@ -171,3 +176,8 @@ app.include_router(runtime_router, prefix="/api")
 app.include_router(runtime_router, prefix=settings.API_V1_STR)
 app.include_router(mcp_router, prefix="/api")
 app.include_router(mcp_router, prefix=settings.API_V1_STR)
+app.include_router(catalog_router, prefix=settings.API_V1_STR)
+app.include_router(datasets_router, prefix=settings.API_V1_STR)
+app.include_router(runs_router, prefix=settings.API_V1_STR)
+app.include_router(graph_router, prefix=settings.API_V1_STR)
+

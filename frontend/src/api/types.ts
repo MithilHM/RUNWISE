@@ -387,3 +387,180 @@ export interface ExperimentFilters {
   limit?: number
   offset?: number
 }
+
+// ---------------------------------------------------------------------------
+// Member B — Autonomous ML Harness Contracts (MEMBER_B.md Section 3.1 & 3.2)
+// ---------------------------------------------------------------------------
+
+export interface ColumnProfile {
+  name: string
+  dtype: string
+  role: 'feature' | 'target'
+  n_missing: number
+  n_unique: number
+}
+
+export interface DroppedColumn {
+  name: string
+  reason: 'constant' | 'all_null' | 'high_cardinality_id' | 'leakage'
+}
+
+export interface DatasetProfile {
+  id: string
+  name: string
+  n_rows: number
+  n_cols: number
+  task: 'binary' | 'multiclass'
+  n_classes: number
+  class_balance: Record<string, number>
+  split_hash: string
+  created_at: string
+  target_inferred: boolean
+  columns: ColumnProfile[]
+  dropped_columns: DroppedColumn[]
+}
+
+export interface ParamSpec {
+  name: string
+  kind: 'int' | 'float' | 'categorical' | 'bool' | 'int_or_null'
+  low?: number | null
+  high?: number | null
+  step?: number | null
+  log_scale?: boolean
+  choices?: any[] | null
+  default: any
+}
+
+export interface ModelSpec {
+  id: 'xgboost' | 'lightgbm' | 'random_forest' | string
+  name: string
+  library: string
+  description: string
+  params: ParamSpec[]
+}
+
+export interface RunCreate {
+  dataset_id: string
+  model_ids: string[]
+  mode: 'autonomous' | 'human'
+  metric: 'accuracy' | 'f1_macro' | 'roc_auc' | 'pr_auc'
+  budget: number
+}
+
+export interface TrialOutcome {
+  trial_id: string
+  run_id: string
+  step: number
+  model_id: string
+  params: Record<string, any>
+  status: 'SUCCESS' | 'FAILED'
+  metric_name: string
+  metric_value: number | null
+  metrics: Record<string, number | null>
+  failure_reason: string | null
+  duration_sec: number
+  n_features: number
+  seed: number
+  created_at: string
+}
+
+export interface RunState {
+  run_id: string
+  dataset_id: string
+  mode: 'autonomous' | 'human'
+  status:
+    | 'IDLE'
+    | 'PROPOSING'
+    | 'AWAITING_REVIEW'
+    | 'EXECUTING'
+    | 'MUTATING'
+    | 'COMPLETED'
+    | 'PAUSED'
+    | 'FAILED'
+  step: number
+  budget: number
+  metric_name: string
+  best_metric?: number | null
+  best_trial_id?: string | null
+  model_ids: string[]
+  created_at: string
+  updated_at: string
+  best_trial?: TrialOutcome | null
+}
+
+export interface Proposal {
+  proposal_id: string
+  step: number
+  model_id: string
+  params: Record<string, any>
+  why: string
+  strategy: string
+  hypothesis: string
+  confidence: number
+  citations: string[]
+}
+
+
+export interface HarnessDecision {
+  decision_id: string
+  run_id: string
+  step: number
+  trial_id: string
+  actor: 'laya' | 'researcher'
+  strategy: string
+  why: string
+  hypothesis: string
+  confidence: number
+  citations: string[]
+  created_at: string
+}
+
+export interface EvidenceItem {
+  kind: 'Model' | 'Param' | 'Setting' | 'Trial' | 'Dataset'
+  id: string
+  label: string
+  detail: string
+}
+
+export interface WhyRecord {
+  decision: HarnessDecision
+  config: Record<string, any>
+  evidence: EvidenceItem[]
+  highlight: string[]
+}
+
+export interface LogEntry {
+  seq: number
+  run_id: string
+  step: number
+  level: string
+  stage: string
+  message: string
+  meta: Record<string, any>
+  ts: string
+}
+
+export interface LogEvent {
+  type: 'log' | 'decision' | 'trial' | 'graph_delta' | 'status'
+  payload: Record<string, any>
+}
+
+export interface GraphNode {
+  id: string
+  label: string
+  type: string
+  props: Record<string, any>
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  type: string
+  props: Record<string, any>
+}
+
+export interface GraphSnapshot {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
