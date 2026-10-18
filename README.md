@@ -224,6 +224,9 @@ Never commit a key.
 |---|---|
 | `RUNWISE_PRD_Four_Person_Parallel_Plan.md` | Product requirements, flows, and the four-person ownership plan |
 | `docs/GRAPH_SCHEMA.md` | Node labels, relationships, key Cypher patterns, correction semantics, and the Cypher constructs this FalkorDB build supports |
+| `docs/DEMO_SCRIPT.md` | Step-by-step 3-minute hackathon demo presentation guide (Screens A, B, and C) |
+| `docs/EVALUATION.md` | Quantitative benchmark results comparing FalkorDB graph against retrieval baseline (PRD 13) |
+| `docs/TROUBLESHOOTING.md` | Quick-reference fixes for Docker, port 6379, and CORS setup issues |
 | `backend/HANDOFF.md` | The recommendation and comparability engine: contract, endpoints, known limits |
 | `backend/app/services/ranking_rules.md` | The documented ranking and comparability rules the code implements |
 
@@ -235,6 +238,9 @@ If the code and `ranking_rules.md` disagree, the code is the bug.
 
 | Script | Purpose |
 |---|---|
+| `scripts/prepare_demo.py` | 1-click demo prep: checks FalkorDB, resets graph, seeds 50 runs, and executes smoke test. |
+| `scripts/run_all_tests.py` | One-command test runner across unit tests, API tests, and E2E integration tests. |
+| `scripts/evaluate.py` | Automated benchmark comparing FalkorDB graph traversal vs naive retrieval baseline across 9 PRD metrics. |
 | `scripts/seed_demo.py` | Generate and ingest 50 synthetic experiments, then run a real correction. Idempotent. `--reset` drops the graph first. |
 | `scripts/reset_graph.py` | Drop the graph and optionally re-seed. The demo reset procedure. |
 | `scripts/smoke_test.py` | 66 end-to-end checks against a running backend and live FalkorDB. |
@@ -259,8 +265,8 @@ Stated plainly so nothing is a surprise in a demo:
   in the UI, in comparability (`INSUFFICIENT_INFORMATION`), and in the evidence
   ledger.
 - **The ranking weights are a product decision, not a fitted model.** They are
-  documented and sweepable. No improvement over a retrieval-only baseline is claimed,
-  because that evaluation has not been run.
+  documented and sweepable. Baseline comparison is measured and documented in
+  `docs/EVALUATION.md` (100% dependency recall vs 25% retrieval-only baseline).
 - **The LLM prose filter is lexical.** It rejects unknown identifiers and figures,
   but a fabricated qualitative claim phrased in supplied words would pass.
 - **The project graph view can be partial.** `GET /projects/{id}/graph` returns a
