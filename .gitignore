@@ -14,3 +14,6 @@ venv/
 # Node (frontend owner scope, this entry is shared)
 node_modules/
 dist/
+
+# Local tool artifacts (browser screenshots taken during review)
+.openchamber/

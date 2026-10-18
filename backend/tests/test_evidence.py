@@ -19,6 +19,7 @@ from app.models.contracts import (
     ComparabilityStatus,
     EvidenceStatus,
     ExperimentRecord,
+    MetricDirection,
     MetricValue,
     QueryRequest,
 )
@@ -490,6 +491,103 @@ def test_answer_is_grounded(graph):
     assert answer["grounding"]["is_grounded"] is True
     assert answer["grounding"]["unknown_citations"] == []
     assert answer["grounding"]["citation_coverage"] == 1.0
+
+
+def test_unverifiable_anchor_is_not_called_the_best_comparable_run():
+    """A single-run cluster must not be reported as a comparison result."""
+    graph = FakeGraphService(
+        experiments=[make_experiment("exp_only", value=0.94, protocol=None, cost=2.2)]
+    )
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=5.0)
+
+    claim = next(c for c in answer["claims"] if c["id"] == "claim_best_run")
+    text = claim["text"]
+
+    # The measurement itself is still reported, and stays grounded in exp_only.
+    assert "0.94" in text
+    assert "exp_only" in text
+    # But it is not described as the winner of a comparison that never happened.
+    assert "among comparable runs" not in text
+    assert "could not be verified" in text
+    assert "Best comparable" not in answer["answer"]
+    assert "cannot be compared to anything" in answer["answer"]
+    assert "Highest recorded" in answer["answer"]
+
+
+def test_verified_anchor_still_claims_the_comparable_lead():
+    """The fix must not weaken the normal case."""
+    graph = FakeGraphService(
+        experiments=[
+            make_experiment("exp_a", value=0.90, cost=0.8),
+            make_experiment("exp_b", value=0.91, cost=0.8),
+            make_experiment("exp_c", value=0.89, cost=0.8, seed=3),
+        ]
+    )
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=5.0)
+
+    claim = next(c for c in answer["claims"] if c["id"] == "claim_best_run")
+    assert "among comparable runs" in claim["text"]
+    assert "Best comparable" in answer["answer"]
+
+
+def test_minimize_metric_never_claims_highest():
+    """A loss metric picks the lowest run, so the wording must follow."""
+    graph = FakeGraphService(
+        experiments=[
+            make_experiment("exp_loss_a", value=0.42, metric_name="validation_loss",
+                            direction=MetricDirection.MINIMIZE, cost=0.8),
+            make_experiment("exp_loss_b", value=0.55, metric_name="validation_loss",
+                            direction=MetricDirection.MINIMIZE, cost=0.8),
+        ]
+    )
+    answer = _ask(_client(graph), "Which run has the best validation_loss?", budget=5.0)
+
+    claim = next(c for c in answer["claims"] if c["id"] == "claim_best_run")
+    # 0.42 is the lowest, and the anchor is the lowest.
+    assert "Lowest" in claim["text"]
+    assert "Highest" not in claim["text"]
+    assert "exp_loss_a" in claim["text"]
+    assert "0.42" in claim["text"]
+
+
+def test_maximize_metric_claims_highest():
+    graph = FakeGraphService(
+        experiments=[
+            make_experiment("exp_acc_a", value=0.90, cost=0.8),
+            make_experiment("exp_acc_b", value=0.81, cost=0.8),
+        ]
+    )
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=5.0)
+
+    claim = next(c for c in answer["claims"] if c["id"] == "claim_best_run")
+    assert "Highest" in claim["text"]
+
+
+def test_single_fully_recorded_run_is_not_called_a_comparison():
+    """One run cannot win a comparison, however complete its own record is."""
+    graph = FakeGraphService(experiments=[make_experiment("exp_solo", value=0.94, cost=0.8)])
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=5.0)
+
+    claim = next(c for c in answer["claims"] if c["id"] == "claim_best_run")
+    assert "among comparable runs" not in claim["text"]
+    assert "only run that can be compared" in claim["text"]
+
+
+def test_comparable_ids_exclude_the_unverified_fallback_anchor():
+    """The field is named comparable; it must not contradict the answer."""
+    graph = FakeGraphService(experiments=[make_experiment("exp_only", value=0.94, protocol=None)])
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=5.0)
+
+    assert answer["comparable_experiment_ids"] == []
+    assert "cannot be compared to anything" in answer["answer"]
+
+
+def test_comparable_ids_are_populated_for_a_real_cohort(graph):
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=5.0)
+
+    # The demo fixture has a multi-run cohort for this metric.
+    if len(answer["comparable_experiment_ids"]) > 1:
+        assert all(eid != "exp_on_v2" for eid in answer["comparable_experiment_ids"])
 
 
 def test_answer_only_cites_retrieved_experiments(graph):

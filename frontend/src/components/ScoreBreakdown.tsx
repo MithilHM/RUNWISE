@@ -42,18 +42,18 @@ export function ScoreBreakdown({
           <div key={component.name} className="grid grid-cols-[1fr_auto] gap-x-3 text-xs">
             <dt className="text-ink-300">
               {component.name}
-              <span className="ml-1.5 font-mono text-[10px] text-ink-600">w {formatNumber(component.weight, 2)}</span>
+              <span className="ml-1.5 font-mono text-[10px] text-ink-500">w {formatNumber(component.weight, 2)}</span>
               <div className="text-ink-500">{component.rationale}</div>
             </dt>
             <dd className="text-right font-mono text-ink-300">
               {formatNumber(component.value, 2)}
-              <span className="ml-1 text-ink-600">→</span>
+              <span className="ml-1 text-ink-500">→</span>
               <span className="ml-1 text-ink-100">{formatNumber(component.weighted_value, 3)}</span>
             </dd>
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-[11px] text-ink-600">
+      <p className="mt-2 text-[11px] text-ink-500">
         A documented weighted heuristic ({scoreKind}), not a calibrated probability.
       </p>
     </div>

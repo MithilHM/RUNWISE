@@ -71,7 +71,7 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
                 ))}
               </ul>
             ) : (
-              <span className="text-xs text-ink-600">none recorded</span>
+              <span className="text-xs text-ink-500">none recorded</span>
             )}
           </Field>
           <Field label="Controlled variables">
@@ -82,14 +82,14 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
                 ))}
               </ul>
             ) : (
-              <span className="text-xs text-ink-600">none recorded</span>
+              <span className="text-xs text-ink-500">none recorded</span>
             )}
           </Field>
           <Field label="Metrics">
             {recommendation.metrics.length ? (
               <span className="text-xs text-ink-300">{recommendation.metrics.join(', ')}</span>
             ) : (
-              <span className="text-xs text-ink-600">none recorded</span>
+              <span className="text-xs text-ink-500">none recorded</span>
             )}
           </Field>
           <Field label="Estimated compute">
@@ -114,7 +114,7 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
                   <span>
                     {criterion.description}
                     {criterion.is_suggested_default && (
-                      <span className="ml-2 text-[10px] text-ink-600">suggested by RUNWISE, not chosen by you</span>
+                      <span className="ml-2 text-[10px] text-ink-500">suggested by RUNWISE, not chosen by you</span>
                     )}
                   </span>
                 </li>
@@ -205,7 +205,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function IdList({ ids }: { ids: string[] }) {
-  if (!ids.length) return <span className="text-xs text-ink-600">none recorded</span>
+  if (!ids.length) return <span className="text-xs text-ink-500">none recorded</span>
   return (
     <span className="flex flex-wrap gap-1">
       {ids.map((id) => (

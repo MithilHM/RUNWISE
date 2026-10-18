@@ -39,7 +39,7 @@ export function ReviewQueue({ projectId }: { projectId: string }) {
                 <span className="text-xs text-ink-300">{item.reason}</span>
                 {item.correction_id && <IdChip id={item.correction_id} title="correction" />}
               </div>
-              <p className="mt-1 text-[11px] text-ink-600">
+              <p className="mt-1 text-[11px] text-ink-500">
                 opened {formatTimestamp(item.created_at)}
                 {item.resolved_at && ` · resolved ${formatTimestamp(item.resolved_at)}`}
                 {item.resolved_by && ` by ${item.resolved_by}`}

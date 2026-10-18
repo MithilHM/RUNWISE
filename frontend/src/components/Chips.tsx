@@ -109,7 +109,7 @@ export function SeverityDot({ severity }: { severity: Severity | string }) {
 }
 
 export function IdChip({ id, title }: { id: string | null | undefined; title?: string }) {
-  if (!id) return <span className="text-ink-600">—</span>
+  if (!id) return <span className="text-ink-500">—</span>
   return (
     <span className="mono-id" title={title ?? id}>
       {id}

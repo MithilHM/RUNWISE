@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The theme declares Inter and JetBrains Mono. Without this the app silently
+         falls back to the system UI font and the numeric columns lose their
+         monospaced alignment. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <meta
       name="description"
       content="RUNWISE - AI research experiment copilot. Import experiment history, ask what to run next, and trace what a correction invalidates."

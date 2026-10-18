@@ -33,7 +33,7 @@ export function ErrorState({
         <div>
           <p className="label text-danger-400">{context ?? 'Request failed'}</p>
           <p className="mt-1 text-sm text-ink-100">{message}</p>
-          <p className="mt-1 font-mono text-[11px] text-ink-600">
+          <p className="mt-1 font-mono text-[11px] text-ink-500">
             {code}
             {apiError?.status ? ` · HTTP ${apiError.status}` : ''}
           </p>
@@ -48,7 +48,7 @@ export function ErrorState({
         <ul className="mt-3 space-y-1 border-t border-ink-700 pt-3 text-xs text-ink-400">
           {apiError.details.slice(1).map((detail, index) => (
             <li key={`${detail.code}-${index}`}>
-              <span className="font-mono text-ink-600">{detail.code}</span> {detail.message}
+              <span className="font-mono text-ink-500">{detail.code}</span> {detail.message}
             </li>
           ))}
         </ul>

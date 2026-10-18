@@ -1,23 +1,53 @@
 @import 'tailwindcss';
 
 @theme {
+  /* Surfaces, darkest to lightest. A research instrument reads as layered
+     material rather than a flat dark sheet. */
   --color-ink-950: #0a0c10;
   --color-ink-900: #11151c;
   --color-ink-850: #161b24;
   --color-ink-800: #1c222d;
+  --color-ink-750: #232b39;
   --color-ink-700: #262e3b;
+  /* Monotonic: every step up is lighter. ink-600 is 1.9:1 on the panel and is for
+     hairlines only; body text starts at ink-500 (5.4:1) and ink-400 (6.1:1). */
   --color-ink-600: #3a4453;
-  --color-ink-400: #7c8798;
+  --color-ink-500: #7c8798;
+  --color-ink-400: #8b96a7;
   --color-ink-300: #a7b1c0;
+  --color-ink-200: #ccd4e0;
   --color-ink-100: #e4e9f0;
 
+  /* One accent, used sparingly. */
+  --color-signal-300: #7fe3d8;
   --color-signal-400: #4fd1c5;
   --color-signal-500: #2cb5a8;
+  --color-warn-300: #f7cd63;
   --color-warn-400: #f0b429;
   --color-danger-400: #f2666e;
   --color-good-400: #5fd18b;
 
+  /* Categorical set for model families. All mid-lightness so they hold their
+     hue on a dark surface without glowing. */
+  --color-cat-1: #4fd1c5;
+  --color-cat-2: #f0b429;
+  --color-cat-3: #93a4f7;
+  --color-cat-4: #f28ab2;
+  --color-cat-5: #5fd18b;
+  --color-cat-6: #c4a2f7;
+
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Named z layers. An arbitrary 9999 in a dropdown is how it ends up behind one. */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-drawer: 20;
+  --z-dropdown: 30;
+  --z-modal-backdrop: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
 }
 
 @layer base {
@@ -31,28 +61,83 @@
     margin: 0;
     background-color: var(--color-ink-950);
     color: var(--color-ink-100);
-    font-family:
-      Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numbers are compared down columns, so they must align on the decimal.
+     Without this, 0.9 and 0.84 visibly jitter as values change. */
+  table,
+  [data-numeric],
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
   }
 
   ::selection {
     background: var(--color-signal-500);
     color: #04140f;
   }
+
+  /* The browser default focus ring is near-invisible on this surface and reads
+     as a warning state. Every interactive element gets the same ring. */
+  :focus-visible {
+    outline: 2px solid var(--color-signal-400);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Dark surfaces need an explicit scrollbar or the track reads as a hole. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-700) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-ink-700);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-ink-600);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
 }
 
 @layer components {
+  /* A panel is a bordered surface, never a bordered surface plus a wide soft
+     shadow. One of the two, not both. */
   .panel {
-    @apply rounded-lg border border-ink-700 bg-ink-900;
+    @apply rounded-lg border border-ink-750 bg-ink-900;
+  }
+
+  .panel-raised {
+    @apply rounded-lg border border-ink-700 bg-ink-850;
   }
 
   .panel-header {
-    @apply flex items-center justify-between gap-3 border-b border-ink-700 px-4 py-3;
+    @apply flex items-start justify-between gap-3 border-b border-ink-750 px-5 py-3.5;
   }
 
+  /* Field and section labels. Sentence case at small size reads better than
+     tracked caps and stops every row shouting the same thing. */
   .label {
-    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400;
+    @apply text-[11px] font-medium tracking-wide text-ink-500;
   }
 
   .mono-id {
@@ -61,25 +146,70 @@
 
   .btn {
     @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-ink-600
-      bg-ink-800 px-3 py-1.5 text-sm font-medium text-ink-100 transition
-      hover:border-ink-400 hover:bg-ink-700
+      bg-ink-800 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors duration-150
+      hover:border-ink-500 hover:bg-ink-750
       disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-ink-800;
   }
 
   .btn-primary {
-    @apply border-signal-500 bg-signal-500 text-ink-950 hover:bg-signal-400 hover:border-signal-400;
+    @apply border-signal-500 bg-signal-500 font-semibold text-ink-950
+      hover:border-signal-400 hover:bg-signal-400;
   }
 
   .btn-danger {
-    @apply border-danger-400/60 text-danger-400 hover:border-danger-400 hover:bg-danger-400/10;
+    @apply border-danger-400/40 text-danger-400 hover:border-danger-400 hover:bg-danger-400/10;
+  }
+
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-ink-300 hover:border-ink-700 hover:bg-ink-850;
   }
 
   .input {
-    @apply w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-1.5 text-sm text-ink-100
-      outline-none placeholder:text-ink-600 focus:border-signal-500;
+    @apply w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 text-sm text-ink-100
+      outline-none transition-colors duration-150 placeholder:text-ink-500
+      focus:border-signal-500;
+  }
+
+  select.input {
+    /* Native arrow disappears against the dark surface. */
+    @apply cursor-pointer appearance-none bg-no-repeat pr-8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238b96a7' stroke-width='1.5'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+    background-position: right 0.6rem center;
+    background-size: 12px;
   }
 
   .table-cell {
-    @apply px-3 py-2 text-sm text-ink-300;
+    @apply px-4 py-2.5 text-sm text-ink-300;
+  }
+
+  /* A data column: right-aligned, tabular, brighter than surrounding prose so
+     the numbers are findable without reading the whole row. */
+  .table-num {
+    @apply px-4 py-2.5 text-right font-mono text-[13px] text-ink-200;
+  }
+
+  .table-head {
+    @apply px-4 py-2.5 text-left text-[11px] font-medium tracking-wide text-ink-500;
+  }
+
+  .hairline {
+    @apply border-ink-750;
+  }
+
+  /* Epistemic grade chip. The colour is the meaning, so it is never subtle. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]
+      font-medium tracking-wide;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

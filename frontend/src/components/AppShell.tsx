@@ -90,7 +90,7 @@ export function AppShell() {
         )}
       </main>
 
-      <footer className="border-t border-ink-800 px-6 py-3 text-[11px] text-ink-600">
+      <footer className="border-t border-ink-800 px-6 py-3 text-[11px] text-ink-500">
         Scores are documented heuristics, not probabilities. Records under an open correction are withheld, never
         deleted.
       </footer>

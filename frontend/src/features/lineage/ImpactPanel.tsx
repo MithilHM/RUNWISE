@@ -152,7 +152,7 @@ export function ImpactPanel({
                       {path.nodes.map((node, nodeIndex) => (
                         <span key={`${node}-${nodeIndex}`} className="flex items-center gap-1">
                           {nodeIndex > 0 && (
-                            <span className="text-ink-600">--{path.relationship_types[nodeIndex - 1]}--&gt;</span>
+                            <span className="text-ink-500">--{path.relationship_types[nodeIndex - 1]}--&gt;</span>
                           )}
                           <IdChip id={node} />
                         </span>
@@ -188,12 +188,12 @@ function Tier({
       <h4 className="label">
         {title} ({ids.length})
       </h4>
-      <p className="mt-0.5 text-[11px] text-ink-600">{hint}</p>
+      <p className="mt-0.5 text-[11px] text-ink-500">{hint}</p>
       <div className="mt-2 flex flex-wrap gap-1">
         {ids.length ? (
           ids.map((id) => <IdChip key={id} id={id} />)
         ) : (
-          <span className="text-[11px] text-ink-600">none</span>
+          <span className="text-[11px] text-ink-500">none</span>
         )}
       </div>
     </div>

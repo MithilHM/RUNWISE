@@ -81,7 +81,7 @@ export function ExperimentDrawer({ experimentId, projectId }: { experimentId: st
                     <td className="py-1 text-ink-300">{metric.name}</td>
                     <td className="py-1 font-mono text-ink-100">
                       {metric.value === null ? (
-                        <span className="text-ink-600">not recorded</span>
+                        <span className="text-ink-500">not recorded</span>
                       ) : (
                         formatMetric(metric)
                       )}
@@ -142,7 +142,7 @@ export function ExperimentDrawer({ experimentId, projectId }: { experimentId: st
                     {ids.length ? (
                       ids.map((id) => <IdChip key={id} id={id} />)
                     ) : (
-                      <span className="text-ink-600">none</span>
+                      <span className="text-ink-500">none</span>
                     )}
                   </span>
                 </div>
@@ -172,7 +172,7 @@ function DrawerBody({ experiment, projectId, children }: { experiment: Experimen
                 {experiment.parent_experiment_ids.length ? (
                   experiment.parent_experiment_ids.map((id) => <IdChip key={id} id={id} />)
                 ) : (
-                  <span className="text-ink-600">none recorded</span>
+                  <span className="text-ink-500">none recorded</span>
                 )}
               </span>
             </div>
@@ -182,11 +182,11 @@ function DrawerBody({ experiment, projectId, children }: { experiment: Experimen
                 {experiment.child_experiment_ids.length ? (
                   experiment.child_experiment_ids.map((id) => <IdChip key={id} id={id} />)
                 ) : (
-                  <span className="text-ink-600">none recorded</span>
+                  <span className="text-ink-500">none recorded</span>
                 )}
               </span>
             </div>
-            <p className="text-[11px] text-ink-600">
+            <p className="text-[11px] text-ink-500">
               {lineage.data.nodes.length} node(s), {lineage.data.edges.length} lineage edge(s) within{' '}
               {lineage.data.nodes.reduce((deepest, node) => Math.max(deepest, Math.abs(node.depth)), 0)} hop(s)
             </p>
@@ -216,7 +216,7 @@ export function AssessmentView({ assessment }: { assessment: ComparabilityAssess
               </span>
               <span>
                 <span className="text-ink-200">{reason.message}</span>
-                <span className="ml-2 font-mono text-[10px] text-ink-600">
+                <span className="ml-2 font-mono text-[10px] text-ink-500">
                   {reason.code} · {reason.dimension} · {reason.severity}
                 </span>
               </span>
@@ -237,7 +237,7 @@ function Row({ label, value, mono }: { label: string; value: string | number | n
       <dt className="text-ink-500">{label}</dt>
       <dd className={`text-right text-ink-200 ${mono ? 'font-mono' : ''}`}>
         {value === null || value === undefined || value === '' ? (
-          <span className="text-ink-600">not recorded</span>
+          <span className="text-ink-500">not recorded</span>
         ) : mono ? (
           <span className="mono-id">{value}</span>
         ) : (

@@ -40,6 +40,7 @@ from app.models.contracts import (
     CorrectionImpact,
     EvidenceStatus,
     ExperimentRecord,
+    MetricDirection,
     QueryRequest,
     Recommendation,
     RecommendationRequest,
@@ -140,6 +141,11 @@ class ResearchQueryService:
             key=lambda a: (a.status.value, a.right_experiment_id or ""),
         )
 
+        # This list is named "comparable", so it must not carry a run the same
+        # answer says cannot be compared to anything. A single-run cluster is the
+        # fallback case, not a cohort, so it reports nothing.
+        comparable_ids = [e.id for e in cluster] if len(cluster) > 1 else []
+
         deterministic = self._compose(
             question=request.question,
             context=context,
@@ -210,7 +216,7 @@ class ResearchQueryService:
             recommendations=result.recommendations,
             corrections_considered=corrections,
             excluded_evidence=excluded,
-            comparable_experiment_ids=[e.id for e in cluster],
+            comparable_experiment_ids=comparable_ids,
             uncertainties=list(dict.fromkeys(uncertainties + result.uncertainties)),
             missing_information=missing,
             insufficient_evidence=insufficient,
@@ -286,11 +292,18 @@ class ResearchQueryService:
                 # Grade the claim with the record's real epistemic status rather
                 # than assuming every retrieved run is an observation.
                 anchor_status = statuses.get(anchor.id, EvidenceStatus.OBSERVED)
+                claim_text = _headline_claim(
+                    metric_name=context.metric_name,
+                    value=value,
+                    anchor=anchor,
+                    assessment=comparabilities.get(anchor.id),
+                    cluster_size=len(cluster),
+                )
+
                 claims.append(
                     ledger.claim(
                         "claim_best_run",
-                        f"Highest {context.metric_name} among comparable runs is "
-                        f"{value} on {anchor.id}{status_note}.",
+                        claim_text,
                         [(anchor.id, context.metric_name)],
                         status=ClaimStatus.SUPPORTED,
                         evidence_status=anchor_status,
@@ -403,10 +416,26 @@ class ResearchQueryService:
         if anchor is not None and context.metric_name:
             metric = anchor.metric(context.metric_name)
             value = metric.value if metric else "not recorded"
-            lines.append(
-                f"Best comparable {context.metric_name}: {value} on {anchor.id} "
-                f"({anchor.name})."
-            )
+            word = _superlative(metric)
+            anchor_assessment = comparabilities.get(anchor.id)
+            if _anchor_is_unverified(anchor_assessment):
+                gap = ", ".join(anchor_assessment.missing_dimensions) or "required fields"
+                lines.append(
+                    f"{word.capitalize()} recorded {context.metric_name}: {value} on "
+                    f"{anchor.id} ({anchor.name}). It cannot be compared to anything: "
+                    f"{gap} not recorded."
+                )
+            elif len(cluster) < 2:
+                lines.append(
+                    f"{word.capitalize()} recorded {context.metric_name}: {value} on "
+                    f"{anchor.id} ({anchor.name}). It is the only comparable run here, so "
+                    "this is a measurement rather than the result of a comparison."
+                )
+            else:
+                lines.append(
+                    f"Best comparable {context.metric_name}: {value} on {anchor.id} "
+                    f"({anchor.name})."
+                )
 
         if cluster:
             listed = ", ".join(e.id for e in cluster[:8])
@@ -530,6 +559,70 @@ class ResearchQueryService:
             missing_information=["No experiments exist in this project."],
             uncertainties=["No recommendation can be produced without stored records."],
         )
+
+
+def _anchor_is_unverified(assessment: Any) -> bool:
+    """True when the anchor run's own comparability could not be established.
+
+    ``select_baseline_cluster`` falls back to a single-run cluster when nothing
+    else can be compared against the best-scoring run. That fallback keeps the
+    response useful, but the run is then a measurement rather than a leader, and
+    the answer must not describe it as one.
+    """
+    if assessment is None:
+        return False
+    return assessment.status is ComparabilityStatus.INSUFFICIENT_INFORMATION
+
+
+def _superlative(metric: Any) -> str:
+    """``lowest`` or ``highest``, from the metric's own direction.
+
+    Hardcoding "highest" is wrong for every loss-like metric: the anchor for a
+    minimize metric is the run with the *smallest* value, so calling it the
+    highest contradicts the number printed next to it.
+    """
+    direction = getattr(metric, "direction", None)
+    return "lowest" if direction is MetricDirection.MINIMIZE else "highest"
+
+
+def _headline_claim(
+    *,
+    metric_name: str | None,
+    value: Any,
+    anchor: ExperimentRecord,
+    assessment: Any,
+    cluster_size: int,
+) -> str:
+    """One sentence stating the measurement and exactly how far it is supported.
+
+    A comparison needs two runs. With fewer, the honest claim is about the
+    measurement alone, not about winning a field.
+    """
+    metric = anchor.metric(metric_name) if metric_name else None
+    word = _superlative(metric)
+
+    if _anchor_is_unverified(assessment):
+        gap = ", ".join(assessment.missing_dimensions) or "required fields"
+        return (
+            f"{word.capitalize()} recorded {metric_name} is {value} on {anchor.id}, "
+            f"but its comparability could not be verified ({gap} not recorded), "
+            "and no other run in this project is comparable to it."
+        )
+
+    if cluster_size < 2:
+        return (
+            f"{word.capitalize()} recorded {metric_name} is {value} on {anchor.id}. "
+            "It is the only run that can be compared here, so this is a measurement "
+            "rather than the result of a comparison."
+        )
+
+    status_note = (
+        f" (comparability of that run: {assessment.status.value})" if assessment else ""
+    )
+    return (
+        f"{word.capitalize()} {metric_name} among comparable runs is "
+        f"{value} on {anchor.id}{status_note}."
+    )
 
 
 def _claim_about_withheld(

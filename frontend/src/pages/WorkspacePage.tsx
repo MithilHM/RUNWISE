@@ -83,64 +83,87 @@ export function WorkspacePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-medium text-ink-100">{project?.name ?? projectId}</h1>
-          <p className="text-xs text-ink-500">
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-ink-100">
+            {project?.name ?? projectId}
+          </h1>
+          <p className="mt-0.5 text-xs text-ink-500">
             {visible.length} run{visible.length === 1 ? '' : 's'} shown
             {project ? ` · ${project.experiment_count} stored` : ''}
           </p>
         </div>
-      </div>
+      </header>
 
-      <ImportPanel projectId={projectId} />
-      <FilterBar value={filters} onChange={setFilters} families={families} datasetVersions={datasetVersions} />
+      <FilterBar
+        value={filters}
+        onChange={setFilters}
+        families={families}
+        datasetVersions={datasetVersions}
+      />
 
       {experiments.isLoading ? (
         <div className="panel">
           <LoadingState label="Loading experiment history" />
         </div>
       ) : experiments.isError ? (
-        <ErrorState error={experiments.error} onRetry={() => void experiments.refetch()} context="Could not load history" />
+        <ErrorState
+          error={experiments.error}
+          onRetry={() => void experiments.refetch()}
+          context="Could not load history"
+        />
       ) : visible.length === 0 ? (
-        <div className="panel">
-          <EmptyState
-            title="No run matches these filters"
-            hint="Filters run inside the graph query. Clear one to widen the search, or import more history."
-          />
+        <div className="space-y-5">
+          <div className="panel">
+            <EmptyState
+              title="No run matches these filters"
+              hint="Filters run inside the graph query. Clear one to widen the search, or import more history."
+            />
+          </div>
+          <ImportPanel projectId={projectId} />
         </div>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_480px]">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="label">Chart metric</span>
-              <select className="input w-56 py-1" value={metricName} onChange={(event) => setMetricName(event.target.value)}>
-                {metricNames.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+        /* The inspector column exists only once a run is selected. Reserving its
+           width beforehand leaves two fifths of the screen holding a caption. */
+        <div
+          className={selectedId ? 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]' : 'space-y-5'}
+        >
+          <div className="space-y-5">
+            <div className="panel flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                <span className="label">Chart metric</span>
+                <select
+                  className="input w-56"
+                  aria-label="Chart metric"
+                  value={metricName}
+                  onChange={(event) => setMetricName(event.target.value)}
+                >
+                  {metricNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedId && (
+                <button type="button" className="btn btn-ghost" onClick={() => setSelectedId(null)}>
+                  Close inspector
+                </button>
+              )}
             </div>
             <Suspense fallback={<LoadingState label="Loading chart" />}>
               <MetricChart experiments={visible} metricName={metricName} />
             </Suspense>
             <ExperimentTable experiments={visible} selectedId={selectedId} onSelect={setSelectedId} />
+            <ImportPanel projectId={projectId} />
           </div>
 
-          <div className="xl:sticky xl:top-4 xl:self-start">
-            {selectedId ? (
+          {selectedId && (
+            <div className="xl:sticky xl:top-6 xl:self-start">
               <ExperimentDrawer experimentId={selectedId} projectId={projectId} />
-            ) : (
-              <div className="panel">
-                <EmptyState
-                  title="Select a run"
-                  hint="The drawer shows its configuration, metrics, provenance, comparability assessment and lineage."
-                />
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -68,11 +68,11 @@ export function CopilotPage() {
         </p>
       </div>
 
-      <div className="panel p-4">
+      <div className="panel p-5">
         <label className="block">
           <span className="label">Research question</span>
           <textarea
-            className="input mt-1 h-20 resize-y"
+            className="input mt-1.5 h-20 resize-y text-[15px]"
             placeholder="Which runs are comparable, and what should I try next?"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
@@ -82,11 +82,11 @@ export function CopilotPage() {
           />
         </label>
 
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="label">Compute budget (GPU-hours)</span>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="flex w-40 flex-col gap-1.5">
+            <span className="label">Compute budget</span>
             <input
-              className="input w-32"
+              className="input font-mono"
               type="number"
               min="0"
               step="0.5"
@@ -94,8 +94,13 @@ export function CopilotPage() {
               onChange={(event) => setBudget(event.target.value)}
             />
           </label>
-          <button type="button" className="btn btn-primary" disabled={pending || !question.trim()} onClick={() => void submit()}>
-            {ask.isPending ? 'Thinking…' : 'Ask'}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={pending || !question.trim()}
+            onClick={() => void submit()}
+          >
+            {ask.isPending ? 'Thinking…' : 'Ask the copilot'}
           </button>
           <button
             type="button"
@@ -103,17 +108,17 @@ export function CopilotPage() {
             disabled={pending || !question.trim()}
             onClick={() => void requestRecommendation()}
           >
-            {recommend.isPending ? 'Planning…' : 'Recommend next experiment'}
+            {recommend.isPending ? 'Planning…' : 'Plan next experiment'}
           </button>
-          <span className="text-[11px] text-ink-600">⌘/Ctrl + Enter to ask</span>
+          <span className="ml-auto text-[11px] text-ink-500">⌘/Ctrl + Enter to ask</span>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-ink-850 pt-4">
           {SUGGESTIONS.map((suggestion) => (
             <button
               key={suggestion}
               type="button"
-              className="rounded border border-ink-700 px-2 py-1 text-[11px] text-ink-400 transition hover:border-ink-600 hover:text-ink-200"
+              className="rounded-full border border-ink-700 px-3 py-1.5 text-[12px] text-ink-300 transition-colors hover:border-ink-500 hover:bg-ink-850 hover:text-ink-100"
               onClick={() => setQuestion(suggestion)}
             >
               {suggestion}
@@ -121,6 +126,33 @@ export function CopilotPage() {
           ))}
         </div>
       </div>
+
+      {!answer && !pending && !error && (
+        /* Before the first question the page would otherwise be two thirds empty
+           blank. State what the copilot will and will not do, so the space
+           teaches the trust model instead of waiting. */
+        <div className="grid gap-4 md:grid-cols-3">
+          {[
+            {
+              title: 'Every answer is cited',
+              body: 'Claims name the runs that support them. Citations are checked against the records retrieved for this question, and an identifier that was not returned fails the response.',
+            },
+            {
+              title: 'Comparability decides what counts',
+              body: 'A run on a different dataset version is not evidence for one that is not, however good its number looks. Reasons are shown per pair.',
+            },
+            {
+              title: 'Disputed evidence is withheld, not deleted',
+              body: 'Report a defect and affected runs stop supporting conclusions. Unaffected runs stay usable, and the revalidation queue opens for a human.',
+            },
+          ].map((item) => (
+            <section key={item.title} className="panel p-5">
+              <h3 className="text-sm font-medium text-ink-100">{item.title}</h3>
+              <p className="mt-2 text-[13px] leading-relaxed text-ink-400">{item.body}</p>
+            </section>
+          ))}
+        </div>
+      )}
 
       {error && <ErrorState error={error} context="The copilot could not answer" />}
 

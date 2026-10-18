@@ -31,7 +31,7 @@ export function AnswerEvidence({ answer }: { answer: ResearchAnswer }) {
               <div key={claim.id} className="border-l-2 border-ink-700 pl-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <EvidenceStatusChip status={claim.evidence_status} />
-                  <span className="font-mono text-[10px] text-ink-600">{claim.id}</span>
+                  <span className="font-mono text-[10px] text-ink-500">{claim.id}</span>
                 </div>
                 <p className="mt-1 text-sm text-ink-200">{claim.text}</p>
                 {claim.detail && <p className="mt-0.5 text-xs text-ink-500">{claim.detail}</p>}
@@ -128,7 +128,7 @@ function ComparisonRow({ assessment }: { assessment: ComparabilityAssessment }) 
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2">
         <ComparabilityBadge status={assessment.status} />
         <IdChip id={assessment.right_experiment_id} />
-        <span className="font-mono text-[11px] text-ink-600">heuristic {assessment.score.toFixed(2)}</span>
+        <span className="font-mono text-[11px] text-ink-500">heuristic {assessment.score.toFixed(2)}</span>
         <span className="flex-1 text-[11px] text-ink-500">
           {assessment.reasons.length} reason{assessment.reasons.length === 1 ? '' : 's'}
         </span>
