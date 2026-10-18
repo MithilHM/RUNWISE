@@ -16,6 +16,24 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+# Metrics whose best value is the smallest. Anything absent from this set is
+# maximised. Both the runtime loop and the ablation benchmark compare in this
+# direction, so a loss target keeps the lowest loss rather than the highest.
+MINIMIZED_METRICS = frozenset({"val_loss", "val_log_loss"})
+
+
+def metric_is_minimized(metric_name: str | None) -> bool:
+    """Whether a lower value of this metric is the better result."""
+    return metric_name in MINIMIZED_METRICS
+
+
+def is_better(candidate: float, incumbent: float | None, minimize: bool) -> bool:
+    """Direction-aware comparison used everywhere a run promotes a new best."""
+    if incumbent is None:
+        return True
+    return candidate < incumbent if minimize else candidate > incumbent
+
+
 class RuntimeObjective(BaseModel):
     """Configuration contract for starting an autonomous runtime optimization loop."""
 

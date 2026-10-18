@@ -27,6 +27,8 @@ from app.models.runtime_contracts import (
     RuntimeObjective,
     RuntimeStepEvent,
     TrialResult,
+    is_better,
+    metric_is_minimized,
 )
 from app.services.executor import SandboxedMLWorker, sandboxed_worker
 from app.services.laya_agent import LayaAgent
@@ -211,10 +213,12 @@ class RuntimeLoop:
                 )
                 self.completed_trials.append(trial_res)
 
-                # Update best score
+                # Update best score. Compared in the metric's own direction, so a
+                # loss target keeps the lowest loss instead of the highest.
                 score = trial_res.metrics.get(self.objective.target_metric)
+                minimize = metric_is_minimized(self.objective.target_metric)
                 if score is not None and trial_res.status == "SUCCESS":
-                    if self.best_score is None or score > self.best_score:
+                    if is_better(score, self.best_score, minimize):
                         self.best_score = score
                         self.best_hyperparameters = trial_res.hyperparameters
                         self.best_trial_id = trial_res.trial_id
@@ -310,41 +314,64 @@ class RuntimeLoop:
         """Executes an automated comparison between Graph+Laya vs Random Search with the same budget."""
         rng = random.Random(42)
         space = self.objective.search_space
+        minimize = metric_is_minimized(self.objective.target_metric)
 
-        # 1. Curve for Graph + Laya
+        def scored(trial: TrialResult) -> Optional[float]:
+            """The target metric of a trial, or None when the trial never produced one.
+
+            A failed or pruned trial has no score. Coercing that to 0.0 would plot a
+            failure as a real measurement and, on a maximised metric, would register
+            it as the worst result so far rather than as no result at all.
+            """
+            value = trial.metrics.get(self.objective.target_metric)
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        # 1. Curve for Graph + Laya. Only trials that actually scored are plotted.
         laya_curve: List[Dict[str, Any]] = []
-        laya_best = 0.0
-        for i, t in enumerate(self.completed_trials[:budget]):
-            s = t.metrics.get(self.objective.target_metric) or 0.0
-            if s > laya_best:
+        laya_best: Optional[float] = None
+        unscored = 0
+        for t in self.completed_trials[:budget]:
+            s = scored(t)
+            if s is None:
+                unscored += 1
+                continue
+            if is_better(s, laya_best, minimize):
                 laya_best = s
             laya_curve.append({
-                "trial": i + 1,
+                "trial": len(laya_curve) + 1,
                 "score": round(s, 4),
                 "best_score": round(laya_best, 4),
             })
 
         # If loop has fewer than budget trials, simulate remaining with Laya generator
-        if len(laya_curve) < budget:
-            for i in range(len(laya_curve), budget):
-                cands = self.laya.generator.generate_candidate_pool(
-                    self.objective, [], [], self.completed_trials, step_number=i + 1
-                )
-                dec = self.laya.evaluate_candidates(self.objective, cands, [], [], laya_best, step_number=i + 1)
-                chosen = next((c for c in cands if c.candidate_id == dec.selected_candidate_id), cands[0])
-                t_res = await self.worker.execute_trial(chosen, self.objective.target_metric)
-                s = t_res.metrics.get(self.objective.target_metric) or 0.0
-                if s > laya_best:
-                    laya_best = s
-                laya_curve.append({
-                    "trial": i + 1,
-                    "score": round(s, 4),
-                    "best_score": round(laya_best, 4),
-                })
+        while len(laya_curve) < budget:
+            i = len(laya_curve)
+            cands = self.laya.generator.generate_candidate_pool(
+                self.objective, [], [], self.completed_trials, step_number=i + 1
+            )
+            dec = self.laya.evaluate_candidates(self.objective, cands, [], [], laya_best, step_number=i + 1)
+            chosen = next((c for c in cands if c.candidate_id == dec.selected_candidate_id), cands[0])
+            t_res = await self.worker.execute_trial(chosen, self.objective.target_metric)
+            s = scored(t_res)
+            if s is None:
+                unscored += 1
+                continue
+            if is_better(s, laya_best, minimize):
+                laya_best = s
+            laya_curve.append({
+                "trial": len(laya_curve) + 1,
+                "score": round(s, 4),
+                "best_score": round(laya_best, 4),
+            })
 
         # 2. Curve for Random Search Baseline
         random_curve: List[Dict[str, Any]] = []
-        random_best = 0.0
+        random_best: Optional[float] = None
         for i in range(budget):
             rand_hparams = {
                 "learning_rate": float(rng.choice(space.get("learning_rate", [0.01, 0.05, 0.1, 0.2]))),
@@ -359,29 +386,58 @@ class RuntimeLoop:
                 rationale="Uninformed uniform random sampling",
             )
             t_res = await self.worker.execute_trial(cand, self.objective.target_metric)
-            s = t_res.metrics.get(self.objective.target_metric) or 0.0
-            if s > random_best:
+            s = scored(t_res)
+            if s is None:
+                unscored += 1
+                continue
+            if is_better(s, random_best, minimize):
                 random_best = s
             random_curve.append({
-                "trial": i + 1,
+                "trial": len(random_curve) + 1,
                 "score": round(s, 4),
                 "best_score": round(random_best, 4),
             })
 
-        imp = round(((laya_best - random_best) / max(random_best, 1e-4)) * 100.0, 2)
-        summary = (
-            f"FalkorDB Multi-hop Graph + Laya achieved {self.objective.target_metric}={round(laya_best, 4)} "
-            f"vs Random Search {round(random_best, 4)} ({'+' if imp >= 0 else ''}{imp}% relative improvement) "
-            f"within {budget} trials on imbalanced regime '{self.objective.dataset_name}'."
-        )
+        # An arm that produced no scored trial has no best. The response contract
+        # requires a float, so report 0.0 and say so plainly in the summary rather
+        # than letting the sentinel read as a measured result. The empty curve is
+        # the real signal, and it is what the UI keys off.
+        laya_val = laya_best if laya_best is not None else 0.0
+        random_val = random_best if random_best is not None else 0.0
+
+        if laya_best is None or random_best is None:
+            imp = 0.0
+            missing = [name for name, val in (("Graph+Laya", laya_best), ("Random Search", random_best)) if val is None]
+            summary = (
+                f"No relative improvement is reported: {', '.join(missing)} produced no scored trial "
+                f"within {budget} trials on imbalanced regime '{self.objective.dataset_name}'. "
+                f"{unscored} trial(s) across both arms failed or were pruned and are excluded from the curves."
+            )
+        else:
+            # Signed so that positive always means the leading arm did better, which
+            # for a minimised metric means a smaller number.
+            delta = (random_best - laya_best) if minimize else (laya_best - random_best)
+            imp = round((delta / max(abs(random_best), 1e-4)) * 100.0, 2)
+            comparison = "lower is better" if minimize else "higher is better"
+            shortfall = (
+                f" {unscored} trial(s) produced no score (failed or pruned) and are excluded from the curves."
+                if unscored
+                else ""
+            )
+            summary = (
+                f"FalkorDB Multi-hop Graph + Laya achieved {self.objective.target_metric}={round(laya_best, 4)} "
+                f"vs Random Search {round(random_best, 4)} ({'+' if imp >= 0 else ''}{imp}% relative improvement, "
+                f"{comparison}) within {budget} trials on imbalanced regime '{self.objective.dataset_name}'."
+                f"{shortfall}"
+            )
 
         return AblationResponse(
             run_id=self.run_id,
             budget=budget,
             laya_curve=laya_curve,
             random_curve=random_curve,
-            laya_best=round(laya_best, 4),
-            random_best=round(random_best, 4),
+            laya_best=round(laya_val, 4),
+            random_best=round(random_val, 4),
             improvement_percentage=imp,
             summary=summary,
         )

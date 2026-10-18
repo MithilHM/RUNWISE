@@ -25,6 +25,12 @@ from app.models.runtime_contracts import CandidateConfig, TrialResult
 
 logger = logging.getLogger(__name__)
 
+# Metrics this worker actually computes. A target outside this set is not produced:
+# the trial reports it as absent so callers render "not recorded". Substituting a
+# different metric under a requested name would return a real-looking number that
+# means something else entirely, which is worse than no number at all.
+COMPUTED_METRICS = ("val_pr_auc", "val_f1", "val_loss")
+
 
 class SandboxedMLWorker:
     """Lightweight, non-blocking executor for tabular models on benchmark data regimes."""
@@ -181,8 +187,16 @@ class SandboxedMLWorker:
                 "val_loss": round(loss, 4),
                 "train_time_sec": elapsed,
             }
-            if target_metric not in metrics:
-                metrics[target_metric] = round(pr_auc, 4)
+            if target_metric not in COMPUTED_METRICS:
+                # Deliberately absent rather than aliased to PR-AUC. The runtime loop
+                # resolves the target by name, so a missing key surfaces as an
+                # unrecorded metric downstream instead of a mislabelled one.
+                logger.warning(
+                    "Requested target_metric %r is not computed by this worker (have %s); "
+                    "reporting it as unrecorded rather than substituting another metric.",
+                    target_metric,
+                    ", ".join(COMPUTED_METRICS),
+                )
 
             return TrialResult(
                 trial_id=trial_id,
