@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { runtimeApi, type AblationResult, type RuntimeObjective, type RuntimeStreamHandle } from '../../api/runtimeApi'
-import { ABLATION_MAX_BUDGET, ABLATION_MIN_BUDGET, RUNTIME_RECONCILE_MS } from './runtimeConstants'
+import { ABLATION_MAX_BUDGET, ABLATION_MIN_BUDGET, DEFAULT_OBJECTIVE, RUNTIME_RECONCILE_MS } from './runtimeConstants'
 import {
   applyEvent,
   initialRuntimeState,
@@ -77,8 +77,18 @@ export function useRuntimeSession(): RuntimeSession {
   const streamRef = useRef<RuntimeStreamHandle | null>(null)
   const objectiveRef = useRef<RuntimeObjective>(state.objective)
   const simulatingRef = useRef(false)
+  /**
+   * Bumped by every start, stop and reset.
+   *
+   * `start` awaits two network calls before it can attach a stream. Without this,
+   * an operator who presses Stop (or Clear, or Start again) during that window has
+   * their action silently undone when the pending request resolves and forces the
+   * session back to running. Comparing generations after each await makes a
+   * superseded start return without touching state.
+   */
+  const generationRef = useRef(0)
   /* The reconcile poll is a safety net for a dropped SSE connection, not the primary
-     path. It only fires while a run is live and stops the moment one finishes. */
+     path. It stops the moment the run reaches a terminal state — see `clearPoll`. */
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const clearPoll = useCallback(() => {
@@ -97,8 +107,25 @@ export function useRuntimeSession(): RuntimeSession {
   const openStream = useCallback(
     (runId: string, simulate: boolean) => {
       closeStream()
-      const push = (event: Parameters<typeof applyEvent>[1]) =>
+      const push = (event: Parameters<typeof applyEvent>[1]) => {
+        /* A terminal frame is the only thing the stream itself reports, and the
+           server reuses that stage for a loop that died. Reading the authoritative
+           status once here closes the window in which a failed run wears the green
+           "Completed" chip until the next poll happens to land. */
+        if (event.stage === 'COMPLETED') {
+          clearPoll()
+          if (!simulate) {
+            void runtimeApi
+              .getRuntimeStatus(runId)
+              .then((snapshot) => setState((previous) => reconcileFromStatus(previous, snapshot)))
+              .catch(() => {
+                // The stream already delivered what it had; a failed confirmation read
+                // must not replace a good terminal state with an error.
+              })
+          }
+        }
         setState((previous) => applyEvent(previous, event))
+      }
 
       const handle = simulate
         ? createMockStream({ runId, objective: objectiveRef.current }, push)
@@ -118,7 +145,15 @@ export function useRuntimeSession(): RuntimeSession {
         pollRef.current = setInterval(() => {
           void runtimeApi
             .getRuntimeStatus(runId)
-            .then((snapshot) => setState((previous) => reconcileFromStatus(previous, snapshot)))
+            .then((snapshot) => {
+              setState((previous) => {
+                const next = reconcileFromStatus(previous, snapshot)
+                // Terminal from here on: stop polling rather than re-rendering the
+                // whole screen every five seconds for the rest of the page's life.
+                if (next.phase === 'completed' || next.failed) clearPoll()
+                return next
+              })
+            })
             .catch(() => {
               /* The status endpoint is a net, not a lifeline. A failure here means the
                  connection is already broken, and the stream's own error handler owns
@@ -127,11 +162,12 @@ export function useRuntimeSession(): RuntimeSession {
         }, RUNTIME_RECONCILE_MS)
       }
     },
-    [closeStream],
+    [clearPoll, closeStream],
   )
 
   const start = useCallback(
     async (objective: RuntimeObjective, simulate: boolean) => {
+      const generation = ++generationRef.current
       closeStream()
       objectiveRef.current = objective
       simulatingRef.current = simulate
@@ -149,6 +185,9 @@ export function useRuntimeSession(): RuntimeSession {
       setState({ ...initialRuntimeState(objective, ''), phase: 'starting' })
       try {
         const started = await runtimeApi.startAutonomousRun(objective)
+        // Superseded by a stop, a clear, or a newer start while the call was in flight.
+        if (generationRef.current !== generation) return
+
         const base = initialRuntimeState(objective, started.run_id)
 
         /* Read the stored status before attaching: the loop may already have run a
@@ -160,10 +199,12 @@ export function useRuntimeSession(): RuntimeSession {
         } catch {
           // The stream backfills every event anyway, so a failed read costs nothing.
         }
+        if (generationRef.current !== generation) return
 
         setState({ ...reconciled, phase: 'running', simulated: false })
         openStream(started.run_id, false)
       } catch (error) {
+        if (generationRef.current !== generation) return
         if (!isTransportFailure(error)) {
           setState((previous) => ({
             ...previous,
@@ -174,6 +215,11 @@ export function useRuntimeSession(): RuntimeSession {
         }
         const detail = error instanceof ApiError ? error.details[0]?.message : String(error)
         const runId = mockRunId()
+        /* The transport ref must follow the fallback, not the original request. Every
+           later decision — reattach, ablation — asks it which backend to talk to, and
+           this run id exists nowhere but here. Leaving it false sent reattach and the
+           ablation at a real endpoint with a `run_demo_*` id and a guaranteed 404. */
+        simulatingRef.current = true
         setState({
           ...initialRuntimeState(objective, runId),
           phase: 'running',
@@ -189,14 +235,17 @@ export function useRuntimeSession(): RuntimeSession {
   )
 
   const stop = useCallback(() => {
+    // Any pending start is now moot; leaving it live would reattach after the stop.
+    generationRef.current += 1
     closeStream()
     // Detaching the listener is an operator action, not a fault. It gets its own
     // state and its own wording rather than borrowing the error channel, which is
     // reserved for things that actually went wrong.
-    setState((previous) => (previous.phase === 'completed' ? previous : { ...previous, phase: 'stopping' }))
+    setState((previous) => ({ ...previous, phase: 'stopping' }))
   }, [closeStream])
 
   const reset = useCallback(() => {
+    generationRef.current += 1
     closeStream()
     simulatingRef.current = false
     setAblation(null)
@@ -206,9 +255,20 @@ export function useRuntimeSession(): RuntimeSession {
   }, [closeStream])
 
   const resume = useCallback(() => {
-    if (!state.runId) return
-    openStream(state.runId, simulatingRef.current)
-    setState((previous) => ({ ...previous, phase: 'running', error: null }))
+    const runId = state.runId
+    if (!runId) return
+    openStream(runId, simulatingRef.current)
+    setState((previous) => {
+      /* Reattaching makes the server replay the run's whole history, and folding
+         skips what it has already applied — the terminal frame included. Forcing
+         "running" unconditionally would strand an already-finished run in a running
+         state with nothing left to move it on. */
+      if (previous.seenEvents.some((id) => id.endsWith('-COMPLETED'))) return previous
+      /* Only a dropped stream is cleared by reattaching. A run that reported a
+         failure keeps that message: reattaching cannot undo it, and wiping the one
+         visible explanation would leave an unexplained error chip. */
+      return { ...previous, phase: 'running', error: null }
+    })
   }, [openStream, state.runId])
 
   const runAblation = useCallback(
@@ -253,14 +313,14 @@ export function useRuntimeSession(): RuntimeSession {
   }
 }
 
-/** The screen's starting objective. Mirrors the control bar's defaults. */
+/**
+ * The screen's starting objective.
+ *
+ * Taken from the shared defaults rather than restated, so the idle header and the
+ * ablation's default budget cannot drift from what the control bar actually offers.
+ */
 function defaultObjective(): RuntimeObjective {
-  return {
-    dataset_name: 'credit_card_fraud',
-    model_family: 'lightgbm',
-    target_metric: 'val_pr_auc',
-    trial_budget: 8,
-  }
+  return { ...DEFAULT_OBJECTIVE }
 }
 
 export function phaseLabel(phase: RuntimePhase): string {
@@ -272,7 +332,9 @@ export function phaseLabel(phase: RuntimePhase): string {
     case 'running':
       return 'Running'
     case 'stopping':
-      return 'Stopped'
+      // The loop behind it is still running; only this screen stopped listening.
+      // "Stopped" would contradict the banner and the reattach button beside it.
+      return 'Detached'
     case 'completed':
       return 'Completed'
     case 'error':

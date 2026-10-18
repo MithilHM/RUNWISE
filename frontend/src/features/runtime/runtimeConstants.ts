@@ -22,29 +22,7 @@ export const RUNTIME_RECONCILE_MS = 5_000
 export const ABLATION_MIN_BUDGET = 2
 export const ABLATION_MAX_BUDGET = 30
 
-/** Closed-loop phases in execution order, for the stage strip and the feed. */
-export const STAGE_ORDER: RuntimeStage[] = [
-  'QUERYING_GRAPH',
-  'GENERATING_CANDIDATES',
-  'LAYA_EVALUATING',
-  'TRAINING_WORKER',
-  'MUTATING_GRAPH',
-  'COMPLETED',
-]
-
-/**
- * A short gloss for each phase. The stage strip names the step, these say what it
- * does, because "LAYA_EVALUATING" on its own does not tell a reader why it matters.
- */
-export const STAGE_DETAIL: Record<RuntimeStage, string> = {
-  QUERYING_GRAPH: 'Multi-hop regime query over FalkorDB for similar and failed regions.',
-  GENERATING_CANDIDATES: 'A typed pool: one exploit, one explore, one regime boundary.',
-  LAYA_EVALUATING: 'Laya scores the pool and commits to one, with a stated hypothesis.',
-  TRAINING_WORKER: 'Sandboxed training run, early stopping enabled.',
-  MUTATING_GRAPH: 'Trial, hypothesis and metrics written back as graph nodes and edges.',
-  COMPLETED: 'Budget exhausted or loop terminated.',
-}
-
+/** Short phase names for the feed. The wire value alone reads as a log line, not a step. */
 export const STAGE_LABELS: Record<RuntimeStage, string> = {
   QUERYING_GRAPH: 'Query graph',
   GENERATING_CANDIDATES: 'Generate candidates',
@@ -53,9 +31,6 @@ export const STAGE_LABELS: Record<RuntimeStage, string> = {
   MUTATING_GRAPH: 'Mutate graph',
   COMPLETED: 'Completed',
 }
-
-/** True for the phases where a trial node should render as in-flight. */
-export const ACTIVE_STAGES: RuntimeStage[] = ['LAYA_EVALUATING', 'TRAINING_WORKER']
 
 export interface DecisionMeta {
   /** Two-letter token for the compact tree badge. Exploit and Explore are `EX` and
@@ -130,12 +105,19 @@ export const RUNNING_NODE = 'border-warn-400/70 bg-warn-400/10'
  * listed first for the fraud regime because at 99:1 accuracy is uninformative, and
  * this screen should not offer a metric that cannot distinguish two candidates.
  *
- * The keys are the names the worker actually writes (`val_pr_auc`, `val_f1`,
- * `val_loss`). That matters: `SandboxedMLWorker` records `val_loss` and, for any
- * target metric it does not already have, falls back to stamping the PR-AUC value
- * under whatever key was requested. Offering a name the worker never computes would
- * render PR-AUC wearing a log-loss label — a confidently wrong measurement rather
- * than a missing one. Keep this list in step with `executor.py`.
+ * Only maximise metrics are offered, and that is a deliberate constraint rather than
+ * an oversight. Two backend behaviours make a minimised target unsafe to expose:
+ *
+ *  1. `SandboxedMLWorker` writes `val_loss` and, for any target metric it does not
+ *     already have, stamps the PR-AUC value under whatever key was requested. A name
+ *     the worker never computes would render PR-AUC wearing a log-loss label.
+ *  2. `RuntimeLoop` promotes a trial to "best" with an unconditional
+ *     `score > self.best_score`, for every metric. On a minimised metric that keeps
+ *     the *worst* configuration, so the header, the tree badges and the ablation
+ *     would all label it "best" while drawing a "lower is better" arrow.
+ *
+ * `isMinimized` still knows the direction, so readding `val_loss` is a one-line
+ * change here once the loop compares in the right direction.
  */
 export const DATASET_OPTIONS = [
   { value: 'credit_card_fraud', label: 'Fraud Detection (imbalanced 99:1)' },
@@ -150,7 +132,6 @@ export const MODEL_FAMILY_OPTIONS = [
 export const TARGET_METRIC_OPTIONS = [
   { value: 'val_pr_auc', label: 'PR-AUC', note: 'maximize · the metric that survives a 99:1 split' },
   { value: 'val_f1', label: 'F1', note: 'maximize · collapses minority recall into one number' },
-  { value: 'val_loss', label: 'Log Loss', note: 'minimize · the only properly calibrated option' },
 ] as const
 
 export const DEFAULT_OBJECTIVE = {
@@ -160,13 +141,9 @@ export const DEFAULT_OBJECTIVE = {
   trial_budget: 8,
 } as const
 
-/** Metrics where a lower value is the better one. */
+/** Metrics whose best value is the smallest. See the note on TARGET_METRIC_OPTIONS. */
 const MINIMIZED_METRICS = new Set(['val_loss', 'val_log_loss'])
 
 export function isMinimized(metric: string | null | undefined): boolean {
   return metric !== null && metric !== undefined && MINIMIZED_METRICS.has(metric)
-}
-
-export function metricDirectionArrow(metric: string | null | undefined): string {
-  return isMinimized(metric) ? '↓' : '↑'
 }

@@ -87,13 +87,14 @@ function syntheticScore(hparams: Record<string, number>, targetMetric: string, r
   score += 0.03 * ((colsample - 0.6) / 0.4)
   score += (random() - 0.5) * 0.03
 
-  if (targetMetric === 'val_log_loss') return Math.max(0.05, 0.62 - score)
+  if (targetMetric === 'val_loss') return Math.max(0.05, 0.62 - score)
   if (targetMetric === 'val_f1') return Math.min(0.97, score * 0.88 + 0.06)
   return Math.min(0.96, Math.max(0.12, score))
 }
 
+/** Mirrors `isMinimized` in runtimeConstants: these keys run the other way. */
 function lowerIsBetter(targetMetric: string): boolean {
-  return targetMetric === 'val_log_loss'
+  return targetMetric === 'val_loss' || targetMetric === 'val_log_loss'
 }
 
 function drawHyperparameters(random: () => number): Record<string, number> {
@@ -226,7 +227,9 @@ function buildScript(config: MockStreamConfig): RuntimeStepEvent[] {
       status === 'SUCCESS'
         ? {
             [objective.target_metric]: score,
-            loss: Number((0.9 - rawScore * 0.5).toFixed(4)),
+            // The worker writes the loss under `val_loss`, not `loss`. Keeping the
+            // same key means the demo's metric list matches a real trial's.
+            val_loss: Number((0.9 - rawScore * 0.5).toFixed(4)),
             train_time_sec: Number((6 + memoryMb / 900).toFixed(2)),
           }
         : { [objective.target_metric]: null, train_time_sec: Number((2 + memoryMb / 2400).toFixed(2)) }
@@ -239,7 +242,9 @@ function buildScript(config: MockStreamConfig): RuntimeStepEvent[] {
       status,
       failure_reason: failureReason,
       memory_mb: memoryMb,
-      parent_trial_id: lastSuccessStep !== null ? `trial_${lastSuccessStep.toString().padStart(4, '0')}` : null,
+      // Deliberately no `parent_trial_id`. The real worker has no such field, so a
+      // demo that emits one would draw a cross-step DERIVED_FROM edge the backend can
+      // never produce — a capability the tree would appear to have and not have.
     }
 
     if (score !== null && (best === null || (minimize ? score < best : score > best))) {

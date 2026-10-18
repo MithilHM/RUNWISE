@@ -37,8 +37,10 @@ interface AblationScoreboardProps {
   meanTrialSeconds: number | null
   /** Trials the loop steered away from a recorded failure region. */
   avoidedRegions: number
-  /** Trials that failed and became FAILED_UNDER edges. */
+  /** Trials that produced no usable result, whether failed outright or pruned. */
   failedRegions: number
+  /** The subset that also wrote a `FAILED_UNDER` edge — failures only, not prunings. */
+  failedEdgeCount: number
   onRun: (budget: number) => void
 }
 
@@ -52,12 +54,16 @@ export function AblationScoreboard({
   meanTrialSeconds,
   avoidedRegions,
   failedRegions,
+  failedEdgeCount,
   onRun,
 }: AblationScoreboardProps) {
-  const [budgetOverride, setBudgetOverride] = useState<number | null>(null)
-  // Derived, not synchronised in an effect: a new run's budget becomes the default
-  // the moment it starts, and an explicit override still wins until it is cleared.
-  const selectedBudget = budgetOverride ?? budget
+  const [budgetDraft, setBudgetDraft] = useState<string | null>(null)
+  /* Clamped on blur, not per keystroke. Clamping as you type makes 10-19
+     unreachable: "1" snaps to the minimum 2, and the next keystroke lands on 25.
+     A draft string also lets the field be cleared, which a clamped number cannot. */
+  const committed = budgetDraft === null || budgetDraft.trim() === ''
+  const selectedBudget = committed ? budget : clampBudget(Number(budgetDraft))
+  const budgetError = !committed && !Number.isFinite(Number(budgetDraft))
 
   return (
     <section className="panel" aria-label="Ablation scoreboard">
@@ -76,8 +82,11 @@ export function AblationScoreboard({
               type="number"
               min={ABLATION_MIN_BUDGET}
               max={ABLATION_MAX_BUDGET}
-              value={selectedBudget}
-              onChange={(event) => setBudgetOverride(Number(event.target.value))}
+              value={budgetDraft ?? budget}
+              aria-invalid={budgetError}
+              title={budgetError ? 'Enter a number between 2 and 30' : undefined}
+              onChange={(event) => setBudgetDraft(event.target.value)}
+              onBlur={() => setBudgetDraft(null)}
               className="input w-20 py-1 text-right font-mono text-xs"
             />
           </label>
@@ -85,7 +94,7 @@ export function AblationScoreboard({
             type="button"
             className="btn btn-primary"
             onClick={() => onRun(selectedBudget)}
-            disabled={pending}
+            disabled={pending || budgetError}
           >
             {pending ? 'Running…' : 'Run ablation'}
           </button>
@@ -157,6 +166,7 @@ export function AblationScoreboard({
             meanTrialSeconds={meanTrialSeconds}
             avoidedRegions={avoidedRegions}
             failedRegions={failedRegions}
+            failedEdgeCount={failedEdgeCount}
           />
 
           <p className="border-t border-ink-800 pt-3 text-[11px] leading-relaxed text-ink-400">{result.summary}</p>
@@ -241,12 +251,14 @@ function SummaryCards({
   meanTrialSeconds,
   avoidedRegions,
   failedRegions,
+  failedEdgeCount,
 }: {
   result: AblationResult
   metric: string
   meanTrialSeconds: number | null
   avoidedRegions: number
   failedRegions: number
+  failedEdgeCount: number
 }) {
   const minimize = isMinimized(metric)
   const runwiseReached = trialsToReach(result.laya_curve, result.laya_best, minimize)
@@ -297,9 +309,13 @@ function SummaryCards({
       <SummaryCard
         label="Failure regions avoided"
         value={`${avoidedRegions} avoided · ${failedRegions} hit`}
-        sub={`${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)}% relative metric gain over random search`}
+        sub={
+          failedEdgeCount < failedRegions
+            ? `${failedEdgeCount} of those wrote a FAILED_UNDER edge · ${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)}% vs random`
+            : `${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)}% relative metric gain over random search`
+        }
         tone={avoidedRegions > 0 ? 'good' : 'neutral'}
-        hint="'Avoided' counts trials where Laya's decision type was avoid_failure_subgraph, meaning it cited a recorded FAILED_UNDER region and stayed out of it. 'Hit' counts trials the worker actually failed or pruned, each of which wrote its own FAILED_UNDER edge for the next run to avoid."
+        hint="'Avoided' counts trials where Laya's decision type was avoid_failure_subgraph, meaning it cited a recorded FAILED_UNDER region and stayed out of it. 'Hit' counts trials that failed or were pruned; of those, only outright failures wrote a FAILED_UNDER edge for the next run — a pruned trial records its reason on the node itself."
       />
     </div>
   )
@@ -336,6 +352,12 @@ function SummaryCard({
 
 const CHART_H = 250
 const PAD = { top: 16, right: 18, bottom: 30, left: 56 }
+
+/** The endpoint accepts 2..30; the field must never be able to display anything else. */
+function clampBudget(value: number): number {
+  if (!Number.isFinite(value)) return ABLATION_MIN_BUDGET
+  return Math.min(ABLATION_MAX_BUDGET, Math.max(ABLATION_MIN_BUDGET, Math.round(value)))
+}
 const PLOT_W = 900
 
 /** Round tick values. A 1/2/2.5/5/10 ladder keeps labels at readable magnitudes. */

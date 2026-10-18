@@ -150,7 +150,7 @@ export function FailureRegionSummary({ state }: { state: RuntimeState }) {
           </span>
         </span>
       ))}
-      <span className="text-ink-500" title="Trials the worker failed or pruned; each is recorded as a FAILED_UNDER edge.">
+      <span className="text-ink-500" title="Trials the worker failed or pruned. Only an outright failure writes a FAILED_UNDER edge; a pruned one records its reason on the node itself.">
         failed{' '}
         <span className="font-mono text-danger-400" data-numeric>
           {stats.failed}

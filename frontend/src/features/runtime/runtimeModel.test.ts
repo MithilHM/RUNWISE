@@ -133,6 +133,15 @@ describe('applyEvent', () => {
 
     expect(state.phase).toBe('completed')
   })
+
+  it('still counts a step that first arrives already terminal', () => {
+    /* A backend that fails before any trial emits COMPLETED on step 0 with no
+       preceding frames. That must still close the run, not be read as a no-op. */
+    const state = applyEvent(initialRuntimeState(OBJECTIVE, 'run_1'), frame({ step_number: 0, stage: 'COMPLETED' }))
+
+    expect(state.phase).toBe('completed')
+    expect(state.seenEvents).toEqual(['0-COMPLETED'])
+  })
 })
 
 describe('expandMutations', () => {
@@ -227,6 +236,71 @@ describe('reconcileFromStatus', () => {
     expect(replayed.totals.nodes_added).toBe(4)
   })
 
+  it('itemises the writes it restored, so the ticker list matches its own totals', () => {
+    /* Marking the restored frame seen means the stream skips it. Without synthesising
+       records here the counter would report 4 nodes while the list showed none. */
+    const merged = reconcileFromStatus(initialRuntimeState(OBJECTIVE, 'run_1'), snapshot({
+      execution_tree: [
+        {
+          step: 1,
+          trial_id: 'trial_0001',
+          candidate_id: 'cand_001',
+          decision_type: 'explore_boundary',
+          hypothesis: 'Probe the depth boundary.',
+          score: 0.82,
+          status: 'SUCCESS',
+          hyperparameters: { max_depth: 4 },
+          graph_delta: { nodes_added: 4, edges_added: 4 },
+        },
+      ],
+    }))
+
+    const named = merged.mutations.filter((record) => !record.residual)
+    // Experiment + EVALUATED_ON, with no hypothesis node available on a snapshot row.
+    expect(named.map((record) => record.label)).toContain('Experiment')
+    expect(named.map((record) => record.label)).toContain('EVALUATED_ON')
+    expect(merged.mutations[0].step).toBe(1)
+  })
+
+  it('does not double-count the writes it restored when the stream backfills them', () => {
+    const entry = {
+      step: 1,
+      trial_id: 'trial_0001',
+      candidate_id: 'cand_001',
+      decision_type: 'explore_boundary' as const,
+      hypothesis: 'Probe the depth boundary.',
+      score: 0.82,
+      status: 'SUCCESS' as const,
+      hyperparameters: { max_depth: 4 },
+      graph_delta: { nodes_added: 4, edges_added: 4 },
+    }
+    const restored = reconcileFromStatus(initialRuntimeState(OBJECTIVE, 'run_1'), snapshot({ execution_tree: [entry] }))
+    const replayed = applyEvent(restored, frame({ step_number: 1, stage: 'MUTATING_GRAPH', trial_result: trial(), graph_delta: { nodes_added: 4, edges_added: 4 } }))
+
+    expect(replayed.mutations).toHaveLength(restored.mutations.length)
+    expect(replayed.totals).toEqual({ nodes_added: 4, edges_added: 4 })
+  })
+
+  it('marks a failed run as failed, not merely as an error', () => {
+    /* Reattaching a dead run cannot help, so the UI needs to tell a dead run from a
+       dropped connection. Both are `phase: 'error'`; only `failed` separates them. */
+    const failed = reconcileFromStatus(initialRuntimeState(OBJECTIVE, 'run_1'), snapshot({ status: 'FAILED' }))
+    const dropped = applyEvent(foldStep(initialRuntimeState(OBJECTIVE, 'run_1'), 1), frame({ stage: 'QUERYING_GRAPH', step_number: 2 }))
+
+    expect(failed.phase).toBe('error')
+    expect(failed.failed).toBe(true)
+    expect(dropped.failed).toBe(false)
+  })
+
+  it('keeps the recorded best when a replay opens with a null metric frame', () => {
+    const scored = foldStep(initialRuntimeState(OBJECTIVE, 'run_1'), 1)
+    expect(scored.bestScore).toBe(0.82)
+
+    // The first backfilled frame of a reattach carries no metric yet.
+    const replayed = applyEvent(scored, frame({ step_number: 1, stage: 'QUERYING_GRAPH', current_best_metric: null }))
+    expect(replayed.bestScore).toBe(0.82)
+  })
+
   it('does not drop a trial the snapshot has not caught up with yet', () => {
     const streamed = foldStep(initialRuntimeState(OBJECTIVE, 'run_1'), 1)
     const merged = reconcileFromStatus(streamed, snapshot({ execution_tree: [] }))
@@ -239,6 +313,18 @@ describe('reconcileFromStatus', () => {
 
     expect(merged.phase).toBe('error')
     expect(merged.error).toContain('reported a failure')
+  })
+
+  it('leaves a finished run finished when its history is replayed', () => {
+    /* Reattaching resubscribes, and the server replays every frame. The terminal
+       frame dedupes, so nothing downstream would ever restore the phase — a
+       reattach that forced "running" would strand the run there permanently. */
+    const finished = applyEvent(foldStep(initialRuntimeState(OBJECTIVE, 'run_1'), 1), frame({ stage: 'COMPLETED' }))
+    const replayed = foldStep(finished, 1)
+
+    expect(replayed.phase).toBe('completed')
+    expect(replayed.seenEvents).toEqual(finished.seenEvents)
+    expect(replayed.totals).toEqual(finished.totals)
   })
 })
 

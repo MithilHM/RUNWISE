@@ -214,6 +214,7 @@ function FeedCard({
                         type="button"
                         onClick={() => onToggle(path)}
                         aria-expanded={open}
+                        aria-controls={`evidence-detail-${path}`}
                         className={`mono-id rounded border px-1.5 py-0.5 text-left transition-colors ${
                           open
                             ? 'border-signal-500 bg-signal-500/10 text-ink-100'
@@ -224,7 +225,10 @@ function FeedCard({
                         {path.length > 26 ? `${path.slice(0, 25)}…` : path}
                       </button>
                       {open && (
-                        <span className="mt-1 inline-flex items-center gap-2 rounded border border-ink-750 bg-ink-900 px-1.5 py-1">
+                        <span
+                          id={`evidence-detail-${path}`}
+                          className="mt-1 inline-flex items-center gap-2 rounded border border-ink-750 bg-ink-900 px-1.5 py-1"
+                        >
                           <span className="font-mono text-[10px] break-all text-ink-200">{path}</span>
                           <button
                             type="button"

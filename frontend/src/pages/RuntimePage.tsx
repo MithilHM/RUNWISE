@@ -7,7 +7,7 @@ import { LayaReasoningFeed } from '../features/runtime/LayaReasoningFeed'
 import { LiveExecutionTreeView } from '../features/runtime/LiveExecutionTreeView'
 import { ObjectiveControlBar } from '../features/runtime/ObjectiveControlBar'
 import { isMinimized } from '../features/runtime/runtimeConstants'
-import { failureCount, meanTrialSeconds, settledCount } from '../features/runtime/runtimeModel'
+import { failureCount, failedEdgeCount, meanTrialSeconds, settledCount } from '../features/runtime/runtimeModel'
 import { phaseLabel, useRuntimeSession } from '../features/runtime/useRuntimeSession'
 
 /**
@@ -28,7 +28,8 @@ export function RuntimePage() {
   const [selectedStep, setSelectedStep] = useState<number | null>(null)
 
   const settled = settledCount(state.nodes)
-  const failed = failureCount(state.nodes)
+  const failures = failureCount(state.nodes)
+  const edges = failedEdgeCount(state.nodes)
   const avoided = useMemo(
     () => state.nodes.filter((node) => node.decisionType === 'avoid_failure_subgraph').length,
     [state.nodes],
@@ -76,11 +77,6 @@ export function RuntimePage() {
             best {state.bestScore === null ? 'not recorded' : formatNumber(state.bestScore, 4)}
             {state.bestScore !== null && (isMinimized(state.objective.target_metric) ? ' ↓' : ' ↑')}
           </span>
-          {state.phase === 'stopping' && (
-            <button type="button" className="btn" onClick={session.resume}>
-              Reattach
-            </button>
-          )}
           {state.phase !== 'idle' && (
             <button type="button" className="btn btn-ghost" onClick={session.reset}>
               Clear
@@ -92,30 +88,26 @@ export function RuntimePage() {
       {state.error && (
         <div className="panel border-warn-400/40 px-4 py-2.5 text-[11px] text-warn-400" role="status">
           {state.error}
-          {state.runId && state.phase === 'error' && (
-            <button type="button" className="btn ml-3 py-1 text-xs" onClick={session.resume}>
-              Reattach stream
-            </button>
-          )}
         </div>
       )}
 
       {state.phase === 'stopping' && (
         <div className="panel px-4 py-2.5 text-[11px] text-ink-400" role="status">
+          {/* Text only: the reattach action lives on the control bar, which is where the
+              rest of the run controls live. Two identical buttons is one too many. */}
           Detached from the run. The backend loop keeps going, so the trials below are the ones seen up to this
           point and nothing further will arrive until the stream is reattached.
-          <button type="button" className="btn ml-3 py-1 text-xs" onClick={session.resume}>
-            Reattach
-          </button>
         </div>
       )}
 
       <ObjectiveControlBar
         onStart={start}
         onStop={session.stop}
+        onResume={session.resume}
         phase={state.phase}
         simulated={state.simulated}
         settled={settled}
+        failed={state.failed}
         lastRun={state.runId ? state.objective : null}
       />
 
@@ -124,11 +116,12 @@ export function RuntimePage() {
           <LiveExecutionTreeView state={state} selectedStep={selectedStep} onSelect={setSelectedStep} />
           {state.nodes.length > 0 && (
             <div className="panel">
-              <div className="flex items-center gap-3 px-5 py-1.5">
+              <div className="flex flex-wrap items-center gap-3 px-5 py-1.5">
                 <p className="label">How the budget was spent</p>
-                {failed > 0 && (
+                {failures > 0 && (
                   <span className="text-[11px] text-ink-500">
-                    {failed} trial(s) wrote a FAILED_UNDER edge for the next run to avoid
+                    {failures} trial(s) failed or were pruned
+                    {edges > 0 && `, of which ${edges} wrote a FAILED_UNDER edge`} for the next run to avoid
                   </span>
                 )}
               </div>
@@ -152,7 +145,8 @@ export function RuntimePage() {
         simulated={session.ablationSimulated}
         meanTrialSeconds={meanSeconds}
         avoidedRegions={avoided}
-        failedRegions={failed}
+        failedRegions={failures}
+        failedEdgeCount={edges}
         onRun={(budget) => void session.runAblation(budget)}
       />
     </div>

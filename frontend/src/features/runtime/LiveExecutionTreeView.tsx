@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { EmptyState } from '../../components/States'
-import { formatDuration, formatNumber } from '../../lib/format'
+import { formatDuration, formatNumber, formatTimestamp } from '../../lib/format'
 import {
   DECISION_META,
   RUNNING_NODE,
@@ -65,8 +65,9 @@ export function LiveExecutionTreeView({ state, selectedStep, onSelect }: LiveExe
     if (atTail) element.scrollTop = element.scrollHeight
   }, [state.nodes.length])
 
-  // Selecting a trial from the reasoning feed has to bring its node into view; the
-  // feed and the tree are stacked columns and the tree is frequently out of frame.
+  // Selecting a trial from the reasoning feed has to bring its node into view *and*
+  // put focus on it: the feed promises "focus trial N", and a scroll alone leaves a
+  // keyboard or screen-reader user with the viewport moved and focus left behind.
   useEffect(() => {
     if (selectedStep === previousSelection.current) return
     previousSelection.current = selectedStep
@@ -76,6 +77,8 @@ export function LiveExecutionTreeView({ state, selectedStep, onSelect }: LiveExe
     if (index < 0 || !element) return
     const offset = TOP_PAD + index * ROW_PITCH - element.clientHeight / 2
     element.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' })
+    // Scrolling the container moves the viewport only; the node itself must take focus.
+    nodeRefs.current.get(selectedStep)?.focus({ preventScroll: true })
   }, [selectedStep, state.nodes])
 
   const selected = useMemo(
@@ -101,6 +104,14 @@ export function LiveExecutionTreeView({ state, selectedStep, onSelect }: LiveExe
     })
     return map
   }, [state.nodes])
+
+  /** Node buttons, so selecting from the feed can move focus, not just the viewport. */
+  const nodeRefs = useRef(new Map<number, HTMLButtonElement>())
+
+  const registerNode = useCallback((step: number, element: HTMLButtonElement | null) => {
+    if (element) nodeRefs.current.set(step, element)
+    else nodeRefs.current.delete(step)
+  }, [])
 
   const canvasHeight = TOP_PAD + state.nodes.length * ROW_PITCH + 24
 
@@ -285,6 +296,7 @@ export function LiveExecutionTreeView({ state, selectedStep, onSelect }: LiveExe
                   x={COL_X.trial}
                   y={rowY}
                   selected={node.step === selectedStep}
+                  registerRef={(element) => registerNode(node.step, element)}
                   onSelect={() => onSelect(node.step === selectedStep ? null : node.step)}
                 />
                 {node.status === 'FAILED' && node.failureReason && (
@@ -384,6 +396,7 @@ function TrialNode({
   x,
   y,
   selected,
+  registerRef,
   onSelect,
 }: {
   node: ExecutionTreeNode
@@ -391,6 +404,7 @@ function TrialNode({
   x: number
   y: number
   selected: boolean
+  registerRef: (element: HTMLButtonElement | null) => void
   onSelect: () => void
 }) {
   const running = node.status === 'RUNNING'
@@ -407,8 +421,10 @@ function TrialNode({
   return (
     <button
       type="button"
+      ref={registerRef}
       onClick={onSelect}
       aria-pressed={selected}
+      aria-current={selected ? 'true' : undefined}
       className={`absolute rounded-md border px-3 py-1.5 text-left transition-colors hover:border-ink-500 ${
         selected ? 'border-signal-500 bg-signal-500/10' : border
       } ${running ? 'bg-ink-850' : 'bg-ink-900'}`}
@@ -554,6 +570,12 @@ function NodeDetail({
               <dt className="text-ink-500">{metric}</dt>
               <dd className="font-mono text-ink-100" data-numeric>
                 {node.score === null ? 'not recorded' : formatNumber(node.score, 4) + (isMinimized(metric) ? ' ↓' : ' ↑')}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-ink-500">Recorded at</dt>
+              <dd className="font-mono text-ink-300" data-numeric>
+                {formatTimestamp(node.at)}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3">

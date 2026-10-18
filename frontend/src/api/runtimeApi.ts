@@ -24,7 +24,7 @@
  *    absent means "not measured".
  */
 
-import { ApiError, BASE_URL, request } from './client'
+import { BASE_URL, request } from './client'
 
 // ---------------------------------------------------------------------------
 // Wire types
@@ -193,16 +193,23 @@ function search(params: Record<string, string | number | boolean | undefined | n
 /**
  * Subscribe to a run's step events.
  *
- * Two details of the backend stream are load-bearing:
+ * One detail of the backend stream is load-bearing: its frames are unnamed
+ * (`data: {...}`), so they arrive as default `message` events with no `event:`
+ * type to filter on.
  *
- *  1. Frames are unnamed (`data: {...}`), so they arrive as default `message`
- *     events with no `event:` type to filter on.
- *  2. The server emits `: keep-alive` comment frames every 15s while a trial is
- *     training. `EventSource` surfaces those as a message with empty `data`, and
- *     `JSON.parse('')` throws. Every frame is length-checked before it is parsed.
+ * The server also emits `: keep-alive` comment frames every 15s while a trial
+ * trains. Those are handled below the `EventSource` API â€” the SSE parser discards
+ * comment lines without dispatching an event â€” so they never reach `onmessage`.
+ * The empty-payload guard below is belt-and-braces for a proxy that rewrites a
+ * comment into an empty `data:` field, which would otherwise make `JSON.parse('')`
+ * throw on a perfectly healthy stream.
  *
- * The stream ends by closing itself after a `COMPLETED` frame; the handle also closes
- * on a transport error so a caller that unmounts mid-run does not leak the listener.
+ * A transient drop is left to `EventSource`'s own reconnection rather than being
+ * closed out. The server replays the run's full history to each new subscriber and
+ * the caller folds idempotently, so a reconnect recovers silently and without
+ * double-counting; the caller's status poll covers the case where it does not.
+ * Only a genuinely closed socket is surfaced, and a `COMPLETED` frame closes the
+ * source itself so the loop does not outlive the run.
  */
 export function streamRuntimeEvents(
   runId: string,
@@ -219,7 +226,6 @@ export function streamRuntimeEvents(
   }
 
   source.onmessage = (message) => {
-    // Keep-alive comment frames carry no payload.
     if (!message.data) return
     try {
       const event = JSON.parse(message.data) as RuntimeStepEvent
@@ -232,9 +238,10 @@ export function streamRuntimeEvents(
 
   source.onerror = () => {
     if (closed) return
-    // A normal server-side close also raises `error`, and the message carries no
-    // detail. Only surface the failure when the socket is genuinely gone.
+    /* CLOSED means the browser gave up; CONNECTING means it is reconnecting on its
+       own, which is silent recovery rather than a failure worth reporting. */
     if (source.readyState === EventSource.CLOSED) {
+      close()
       onError?.(new Error(`Lost the event stream for run ${runId}. The run may still be alive.`))
     }
   }
@@ -258,21 +265,10 @@ export const runtimeApi = {
   /**
    * Compare Graph+Laya against uniform random search over the same budget. The
    * endpoint is POST-only (the budget is a query parameter, the comparison itself is
-   * not idempotent — it trains trials), and the budget is capped server-side at 2..30.
+   * not idempotent â€” it trains trials), and the budget is capped server-side at 2..30.
    */
   runAblationStudy: (runId: string, budget = 10) =>
     request<AblationResult>(`/api/runtime/${runId}/ablation${search({ budget })}`, {
       method: 'POST',
     }),
-
-  /** Whether a run id still exists server-side. Used to tell "offline" from "gone". */
-  isRuntimeReachable: async (): Promise<boolean> => {
-    try {
-      await request<{ status: string }>('/health')
-      return true
-    } catch (error) {
-      // A 5xx still proves something is answering on the other end.
-      return error instanceof ApiError && error.status > 0
-    }
-  },
 }

@@ -101,6 +101,14 @@ export interface RuntimeState {
   seenEvents: string[]
   /** True when the events came from the local simulation rather than the backend. */
   simulated: boolean
+  /**
+   * The run itself failed, as distinct from the connection to it failing.
+   *
+   * Both land in `phase: 'error'` but they call for opposite responses: a dropped
+   * stream is worth reattaching, a dead run is not. Collapsing them leaves the screen
+   * offering "reattach" for a loop that has already stopped.
+   */
+  failed: boolean
   error: string | null
 }
 
@@ -118,6 +126,7 @@ export function initialRuntimeState(objective: RuntimeObjective, runId: string):
     totals: { nodes_added: 0, edges_added: 0 },
     seenEvents: [],
     simulated: false,
+    failed: false,
     error: null,
   }
 }
@@ -161,7 +170,10 @@ export function applyEvent(state: RuntimeState, event: RuntimeStepEvent): Runtim
     phase: terminal ? 'completed' : 'running',
     stage: event.stage,
     step: event.step_number,
-    bestScore: event.current_best_metric,
+    /* A reattach replays history from the first frame, whose `current_best_metric` is
+       still null. Falling back to the recorded value stops the header dropping back to
+       "not recorded" and climbing again on every reattach. */
+    bestScore: event.current_best_metric ?? state.bestScore,
     nodes,
     feed,
     mutations,
@@ -302,8 +314,10 @@ export function expandMutations(event: RuntimeStepEvent, datasetName: string): G
 
   const namedNodes = records.filter((record) => record.kind === 'node').length
   const namedEdges = records.filter((record) => record.kind === 'edge').length
-  const nodeSlack = event.graph_delta.nodes_added - namedNodes
-  const edgeSlack = event.graph_delta.edges_added - namedEdges
+  // Defensive: the field is required by the contract, but `applyEvent` already reads
+  // it optionally, and a malformed frame must not take the whole reducer down.
+  const nodeSlack = (event.graph_delta?.nodes_added ?? 0) - namedNodes
+  const edgeSlack = (event.graph_delta?.edges_added ?? 0) - namedEdges
 
   // Node and edge gaps are reported separately. Collapsing them with a min() would
   // quietly drop the larger one, which is the case this row exists to surface.
@@ -350,10 +364,31 @@ export function expandMutations(event: RuntimeStepEvent, datasetName: string): G
 export function reconcileFromStatus(state: RuntimeState, status: RuntimeStatusResponse): RuntimeState {
   const byStep = new Map(state.nodes.map((node) => [node.step, node]))
   const added: number[] = []
+  const restoredMutations: GraphMutationRecord[] = []
 
   const fromSnapshot = status.execution_tree.map((entry) => {
     const existing = byStep.get(entry.step)
-    if (!existing) added.push(entry.step)
+    if (!existing) {
+      added.push(entry.step)
+      /* Reconstruct the writes this step made. Marking the frame seen means the
+         stream's backfill will skip it, so without this the ticker's totals would
+         count writes its list never shows — under a header claiming to list them. */
+      restoredMutations.unshift(
+        ...expandMutations(
+          {
+            step_number: entry.step,
+            stage: 'MUTATING_GRAPH',
+            current_best_metric: null,
+            laya_decision: null,
+            trial_result: trialFromEntry(entry),
+            graph_delta: entry.graph_delta ?? { nodes_added: 0, edges_added: 0 },
+            timestamp: new Date().toISOString(),
+            message: null,
+          },
+          status.objective?.dataset_name ?? state.objective.dataset_name,
+        ),
+      )
+    }
     return mergeEntry(existing, entry, status.objective)
   })
 
@@ -388,15 +423,19 @@ export function reconcileFromStatus(state: RuntimeState, status: RuntimeStatusRe
     runId: status.run_id,
     objective: status.objective ?? state.objective,
     phase,
+    failed: failed || state.failed,
     step: merged.length > 0 ? merged[merged.length - 1].step : state.step,
     bestScore: status.best_score ?? state.bestScore,
     nodes: merged,
     seenEvents: [...seen],
+    mutations: restoredMutations.length > 0 ? [...restoredMutations, ...state.mutations] : state.mutations,
     totals: {
       nodes_added: Math.max(status.graph_mutation_stats?.nodes_added ?? 0, state.totals.nodes_added),
       edges_added: Math.max(status.graph_mutation_stats?.edges_added ?? 0, state.totals.edges_added),
     },
-    error: failed ? (state.error ?? 'The runtime loop reported a failure. See the reasoning feed for the step it stopped on.') : state.error,
+    error: failed
+      ? (state.error ?? 'The runtime loop reported a failure. See the reasoning feed for the step it stopped on.')
+      : state.error,
     feed:
       added.length > 0
         ? [
@@ -413,6 +452,19 @@ export function reconcileFromStatus(state: RuntimeState, status: RuntimeStatusRe
             ...state.feed,
           ]
         : state.feed,
+  }
+}
+
+/** A snapshot row back into the shape `expandMutations` expects to name its writes. */
+function trialFromEntry(entry: ExecutionTreeEntry): TrialResult {
+  return {
+    trial_id: entry.trial_id,
+    candidate_id: entry.candidate_id,
+    hyperparameters: entry.hyperparameters ?? {},
+    metrics: {},
+    status: entry.status,
+    failure_reason: null,
+    memory_mb: 0,
   }
 }
 
@@ -466,8 +518,21 @@ export function settledCount(nodes: ExecutionTreeNode[]): number {
   return nodes.filter((node) => node.status !== 'RUNNING').length
 }
 
+/** Trials that produced no usable result, whether failed outright or pruned. */
 export function failureCount(nodes: ExecutionTreeNode[]): number {
   return nodes.filter((node) => node.status === 'FAILED' || node.status === 'PRUNED').length
+}
+
+/**
+ * Trials that also wrote a `FAILED_UNDER` edge.
+ *
+ * Narrower than `failureCount` on purpose: `RuntimeGraphService.mutate_runtime_trial`
+ * writes that edge only for `status === 'FAILED'`. A pruned trial still records its
+ * failure reason on the node and still writes a metric node for its duration, so
+ * claiming it left a `FAILED_UNDER` edge would overstate what the graph now holds.
+ */
+export function failedEdgeCount(nodes: ExecutionTreeNode[]): number {
+  return nodes.filter((node) => node.status === 'FAILED').length
 }
 
 /**
