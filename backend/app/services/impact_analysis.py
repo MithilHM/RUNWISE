@@ -273,7 +273,7 @@ class ImpactAnalysisService:
         self.repository.create_correction(
             correction_id=corr_id,
             description=desc,
-            status="active",
+            status="open",
             created_by=created_by
         )
         self._annotate_correction(

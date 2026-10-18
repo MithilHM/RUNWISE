@@ -1,5 +1,5 @@
 """
-End-to-end API integration tests for Person A endpoints.
+End-to-end API integration tests for the graph-layer endpoints.
 Verifies HTTP contract compatibility with PRD Section 9.
 """
 

@@ -670,10 +670,15 @@ class GraphRepository:
         self,
         correction_id: str,
         description: str,
-        status: str = "active",
+        status: str = "open",
         created_by: str = "researcher"
     ) -> Dict[str, Any]:
-        """Creates or updates a Correction node."""
+        """Creates or updates a Correction node.
+
+        The default status is the contract's ``open``: a correction recorded here
+        is unsettled until a researcher says otherwise, and the trust gates read
+        every status that still belongs to an unsettled correction.
+        """
         now = datetime.now(timezone.utc).isoformat()
         cypher = """
         MERGE (co:Correction {id: $id})

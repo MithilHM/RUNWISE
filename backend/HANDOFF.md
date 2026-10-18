@@ -22,8 +22,8 @@ in order to wire it in.
 | `app/api/recommendations.py` | 4 endpoints |
 | `app/api/copilot.py` | Query endpoint + `ResearchQueryService` |
 | `tests/test_comparability.py` | 34 tests |
-| `tests/test_recommendations.py` | 42 tests |
-| `tests/test_evidence.py` | 50 tests |
+| `tests/test_recommendations.py` | 44 tests |
+| `tests/test_evidence.py` | 57 tests |
 | `tests/fakes/fake_graph.py` | In-memory `GraphService` used by the test suite |
 | `tests/conftest.py` | Shared scenario fixtures |
 

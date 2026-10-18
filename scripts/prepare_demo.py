@@ -1,6 +1,6 @@
 """
-1-click demo preparation script for RUNWISE (Person D).
-Checks FalkorDB connectivity, resets graph, seeds 50 synthetic experiments,
+1-click demo preparation script for RUNWISE.
+Checks FalkorDB connectivity, resets graph, seeds 53 synthetic experiments,
 and runs the verification smoke test.
 
 Usage:
@@ -41,7 +41,7 @@ def main() -> int:
     print("✅ FalkorDB is online.")
 
     # 2. Reset and Seed 50 Experiments
-    print("\n[2/3] Resetting and seeding 50 synthetic runs with ground truth...")
+    print("\n[2/3] Resetting and seeding 53 synthetic runs with ground truth...")
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     seed_proc = subprocess.run([sys.executable, "scripts/seed_demo.py", "--reset"], cwd=root)
     if seed_proc.returncode != 0:

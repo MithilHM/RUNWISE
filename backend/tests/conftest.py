@@ -58,6 +58,7 @@ def make_experiment(
     cost: float | None = 0.8,
     source_reference: str | None = None,
     quality_status: EvidenceStatus | None = None,
+    parent_experiment_id: str | None = None,
 ) -> ExperimentRecord:
     """One experiment with every field the comparability engine reads."""
     metrics: list[MetricValue] = []
@@ -81,6 +82,7 @@ def make_experiment(
         dataset_version_id=dataset_version_id,
         dataset_version=dataset_version,
         dataset_quality_status=quality_status,
+        parent_experiment_id=parent_experiment_id,
         status=status,
         metrics=metrics,
         configuration=configuration if configuration is not None else {"max_depth": 4},

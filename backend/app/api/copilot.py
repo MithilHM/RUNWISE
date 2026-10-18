@@ -38,6 +38,7 @@ from app.models.contracts import (
     ComparabilityStatus,
     ClaimStatus,
     CorrectionImpact,
+    CORRECTION_STATUSES_BLOCKING_TRUST,
     EvidenceStatus,
     ExperimentRecord,
     MetricDirection,
@@ -231,7 +232,7 @@ class ResearchQueryService:
         disputed_versions: set[str] = set()
 
         for correction in self.graph.list_corrections(project_id):
-            if correction.status not in ("open", "acknowledged"):
+            if correction.status not in CORRECTION_STATUSES_BLOCKING_TRUST:
                 continue
             impact = self.graph.get_correction_impact(correction.id)
             if impact is None:

@@ -37,6 +37,7 @@ from app.models.contracts import (
     Candidate,
     CandidateKind,
     ComparabilityAssessment,
+    CORRECTION_STATUSES_BLOCKING_TRUST,
     DatasetVersionSummary,
     Decision,
     ExcludedEvidence,
@@ -1256,7 +1257,7 @@ class RecommendationEngine:
         disputed_experiments: set[str] = set()
 
         for correction in corrections:
-            if correction.status not in ("open", "acknowledged"):
+            if correction.status not in CORRECTION_STATUSES_BLOCKING_TRUST:
                 continue
             impact = self.graph.get_correction_impact(correction.id)
             if impact is None:

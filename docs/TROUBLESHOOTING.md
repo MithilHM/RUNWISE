@@ -23,7 +23,7 @@ docker compose up -d
 **Symptom:** Ingestion fails due to previous duplicate test data or orphaned review items.  
 **Fix:**
 ```powershell
-# Reset graph and seed fresh 50 runs in one step:
+# Reset graph and seed fresh 53 runs in one step:
 python scripts/reset_graph.py --seed
 
 # Nuclear wipe (cleans persistent Docker volume):

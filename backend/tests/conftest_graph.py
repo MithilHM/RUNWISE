@@ -1,4 +1,4 @@
-"""Live FalkorDB test fixtures for Person A graph, ingestion, and impact test suites."""
+"""Live FalkorDB test fixtures for the graph, ingestion, and impact test suites."""
 
 from __future__ import annotations
 

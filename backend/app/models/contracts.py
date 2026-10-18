@@ -523,6 +523,16 @@ class CorrectionRecord(Record):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+#: A correction still blocks evidence trust while it is unsettled. The writers
+#: record a live correction as ``open`` (the contract default above); ``active``
+#: is what the graph layer wrote historically, and graphs seeded before that
+#: change keep it, so the readers accept both rather than silently trusting runs
+#: under an unsettled correction whose status word they do not recognise.
+CORRECTION_STATUSES_BLOCKING_TRUST: frozenset[str] = frozenset(
+    {"open", "active", "acknowledged"}
+)
+
+
 class ReviewItem(Record):
     """FR-6 revalidation queue entry."""
 
@@ -658,7 +668,7 @@ class ErrorResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Person A: Graph, Lineage, Ingestion & Correction Contracts
+# Graph, Lineage, Ingestion & Correction Contracts
 # ---------------------------------------------------------------------------
 
 class MetricModel(MetricValue):

@@ -565,6 +565,68 @@ def test_disputed_evidence_is_withheld_from_proposals(disputed_graph):
     assert not cited & excluded_ids, "withheld evidence must not support a proposal"
 
 
+def test_runs_derived_from_disputed_runs_are_withheld_from_proposals(disputed_graph):
+    """A clean dataset does not launder an invalidated parent: derivation alone
+    must withhold a run from proposal support."""
+    derived = make_experiment(
+        "exp_derived_ok",
+        value=0.92,
+        dataset_version_id=VERSION_V2,
+        dataset_version="v2",
+        configuration={"max_depth": 6},
+        parent_experiment_id="exp_baseline",
+    )
+    disputed_graph.experiments[derived.id] = derived
+
+    engine = RecommendationEngine(disputed_graph, id_factory=sequential_ids())
+    result = engine.generate(
+        PROJECT_ID,
+        RecommendationRequest(objective=f"Improve {ACCURACY}", compute_budget_gpu_hours=20),
+    )
+
+    excluded_ids = {item.experiment_id for item in result.excluded_evidence}
+    assert {"exp_baseline", "exp_derived_ok"} <= excluded_ids
+    cited = {
+        eid
+        for r in result.recommendations
+        for eid in [*r.baseline_experiment_ids, *r.supporting_experiment_ids]
+    }
+    assert not cited & excluded_ids
+
+
+def test_an_unsettled_correction_blocks_proposals_whatever_status_word(graph):
+    """The graph layer historically labelled a recorded correction 'active'; the
+    trust gate must not treat an unsettled correction as settled because the
+    word it recognises is 'open'."""
+    from app.models.contracts import CorrectionRecord
+
+    correction = CorrectionRecord(
+        id="corr_active_vocabulary",
+        project_id=PROJECT_ID,
+        source_id=VERSION_V1,
+        source_type="dataset_version",
+        description="Train-validation leakage in v1.",
+        status="active",
+        created_by="benchmark",
+    )
+    graph.corrections[correction.id] = correction
+
+    engine = RecommendationEngine(graph, id_factory=sequential_ids())
+    result = engine.generate(
+        PROJECT_ID,
+        RecommendationRequest(objective=f"Improve {ACCURACY}", compute_budget_gpu_hours=20),
+    )
+
+    excluded_ids = {item.experiment_id for item in result.excluded_evidence}
+    assert {"exp_baseline", "exp_depth6"} <= excluded_ids
+    cited = {
+        eid
+        for r in result.recommendations
+        for eid in [*r.baseline_experiment_ids, *r.supporting_experiment_ids]
+    }
+    assert not cited & excluded_ids
+
+
 def test_disputed_evidence_can_be_re_included_explicitly(disputed_graph):
     """Opting in must actually put the disputed runs back into consideration."""
     strict = RecommendationEngine(disputed_graph, id_factory=sequential_ids())

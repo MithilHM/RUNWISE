@@ -47,7 +47,7 @@ python scripts/seed_demo.py --reset   # drop the graph first, for a clean demo
 python scripts/reset_graph.py --seed  # same reset, via the reset script
 ```
 
-Seeding creates 50 synthetic experiments across several model families and dataset
+Seeding creates 53 synthetic experiments across several model families and dataset
 versions, then reports a real correction: which runs touched the defective dataset
 version, which are downstream, and which are unaffected.
 
@@ -222,7 +222,7 @@ Never commit a key.
 
 | File | Contents |
 |---|---|
-| `RUNWISE_PRD_Four_Person_Parallel_Plan.md` | Product requirements, flows, and the four-person ownership plan |
+| `RUNWISE_PRD_Parallel_Plan.md` | Product requirements, flows, and the ownership plan |
 | `docs/GRAPH_SCHEMA.md` | Node labels, relationships, key Cypher patterns, correction semantics, and the Cypher constructs this FalkorDB build supports |
 | `docs/DEMO_SCRIPT.md` | Step-by-step 3-minute hackathon demo presentation guide (Screens A, B, and C) |
 | `docs/EVALUATION.md` | Quantitative benchmark results comparing FalkorDB graph against retrieval baseline (PRD 13) |
@@ -238,15 +238,15 @@ If the code and `ranking_rules.md` disagree, the code is the bug.
 
 | Script | Purpose |
 |---|---|
-| `scripts/prepare_demo.py` | 1-click demo prep: checks FalkorDB, resets graph, seeds 50 runs, and executes smoke test. |
+| `scripts/prepare_demo.py` | 1-click demo prep: checks FalkorDB, resets graph, seeds 53 runs, and executes smoke test. |
 | `scripts/run_all_tests.py` | One-command test runner across unit tests, API tests, and E2E integration tests. |
 | `scripts/evaluate.py` | Automated benchmark comparing FalkorDB graph traversal vs naive retrieval baseline across 9 PRD metrics. |
-| `scripts/seed_demo.py` | Generate and ingest 50 synthetic experiments, then run a real correction. Idempotent. `--reset` drops the graph first. |
+| `scripts/seed_demo.py` | Generate and ingest 53 synthetic experiments, then run a real correction. Idempotent. `--reset` drops the graph first. |
 | `scripts/reset_graph.py` | Drop the graph and optionally re-seed. The demo reset procedure. |
 | `scripts/smoke_test.py` | 66 end-to-end checks against a running backend and live FalkorDB. |
 | `scripts/verify_api_contract.py` | Fails when the frontend types and the backend's OpenAPI schema disagree. |
 | `scripts/probe_cypher_support.py` | Reports which Cypher constructs the running FalkorDB accepts. |
-| `scripts/build_sample_csv.py` | Regenerates `sample_data/synthetic_experiments.csv` from the JSON, with real JSON in the nested cells. |
+| `scripts/build_sample_csv.py` | Regenerates both sample files from the seed generator itself, with real JSON in the nested cells. |
 
 ---
 

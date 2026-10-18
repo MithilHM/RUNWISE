@@ -123,6 +123,110 @@
     "description": "Control computer vision experiment completely isolated from tabular dataset"
   },
   {
+    "id": "exp_051",
+    "project_id": "project_demo",
+    "name": "distilled_port_sales",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v3",
+    "parent_experiment_id": "exp_002",
+    "status": "completed",
+    "duration_seconds": 2160,
+    "compute_cost_gpu_hours": 0.6,
+    "random_seed": 7,
+    "configuration": {
+      "max_depth": 6,
+      "learning_rate": 0.1,
+      "n_estimators": 120,
+      "distillation_source": "exp_002"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.903,
+        "direction": "maximize",
+        "evaluation_split": "validation",
+        "evaluation_protocol": "stratified_5fold"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.44,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Ported the exp_002 learner to tabular_sales v3 to test whether its tuned configuration transfers. Its conclusions rest on exp_002's validity, not on this dataset."
+  },
+  {
+    "id": "exp_052",
+    "project_id": "project_demo",
+    "name": "ported_lr_sweep",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_sales",
+    "dataset_version": "v3",
+    "parent_experiment_id": "exp_051",
+    "status": "completed",
+    "duration_seconds": 1800,
+    "compute_cost_gpu_hours": 0.5,
+    "random_seed": 8,
+    "configuration": {
+      "max_depth": 6,
+      "learning_rate": 0.05,
+      "n_estimators": 120,
+      "distillation_source": "exp_051"
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.897,
+        "direction": "maximize",
+        "evaluation_split": "validation",
+        "evaluation_protocol": "stratified_5fold"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.46,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Single-variable sweep of learning_rate (0.1 -> 0.05) on the exp_051 port, two derivation steps away from the corrected data."
+  },
+  {
+    "id": "exp_053",
+    "project_id": "project_demo",
+    "name": "xgboost_rebuilt_v2",
+    "model_family": "gradient_boosting",
+    "dataset_name": "tabular_fraud",
+    "dataset_version": "v2",
+    "status": "completed",
+    "duration_seconds": 3240,
+    "compute_cost_gpu_hours": 0.9,
+    "random_seed": 42,
+    "configuration": {
+      "max_depth": 5,
+      "learning_rate": 0.1,
+      "n_estimators": 150,
+      "subsample": 0.8
+    },
+    "metrics": [
+      {
+        "name": "validation_accuracy",
+        "value": 0.921,
+        "direction": "maximize",
+        "evaluation_split": "validation",
+        "evaluation_protocol": "stratified_5fold"
+      },
+      {
+        "name": "validation_loss",
+        "value": 0.31,
+        "direction": "minimize",
+        "evaluation_split": "validation"
+      }
+    ],
+    "description": "Fresh baseline on the repaired tabular_fraud v2, no derivation. Scores below the v1 runs because split leakage inflated v1, which is the expectation, not a regression."
+  },
+  {
     "id": "exp_005",
     "project_id": "project_demo",
     "name": "distilbert_v3",

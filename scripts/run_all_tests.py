@@ -20,7 +20,7 @@ if hasattr(sys.stderr, "reconfigure"):
 def main() -> int:
     backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
     print("=" * 60)
-    print("RUNWISE — Automated Verification Suite (Person D)")
+    print("RUNWISE — Automated Verification Suite")
     print("=" * 60)
 
     cmd = [

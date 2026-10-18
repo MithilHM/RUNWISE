@@ -69,7 +69,13 @@ check("demo project exists", isinstance(projects, list) and any(p["id"] == PROJE
 
 status, experiments = call("GET", f"/api/v1/projects/{PROJECT}/experiments?limit=500")
 check("experiment list is 200", status == 200, str(status))
-check("50 runs are listed", isinstance(experiments, list) and len(experiments) == 50, str(len(experiments) if isinstance(experiments, list) else experiments))
+check("53 runs are listed", isinstance(experiments, list) and len(experiments) == 53, str(len(experiments) if isinstance(experiments, list) else experiments))
+derived_ids = {"exp_051", "exp_052", "exp_053"}
+check(
+    "the lineage amplifiers are seeded",
+    derived_ids <= {e["id"] for e in experiments} if isinstance(experiments, list) else False,
+    str(sorted({e["id"] for e in experiments} & derived_ids) if isinstance(experiments, list) else "?"),
+)
 run = next((e for e in experiments if e["metrics"]), None)
 check("a run carries metrics", run is not None)
 
@@ -119,13 +125,59 @@ status, config_filtered = call(
 check("config filter is 200", status == 200, str(status))
 check(
     "config filter narrows the result",
-    isinstance(config_filtered, list) and 0 < len(config_filtered) < 50,
+    isinstance(config_filtered, list) and 0 < len(config_filtered) < 53,
     f"{len(config_filtered) if isinstance(config_filtered, list) else '?'} rows",
 )
 
 status, summary = call("GET", f"/api/v1/projects/{PROJECT}/graph/summary")
 check("graph summary is 200", status == 200, str(status))
-check("graph summary counts experiments", summary.get("node_counts", {}).get("Experiment", 0) == 50)
+check("graph summary counts experiments", summary.get("node_counts", {}).get("Experiment", 0) == 53)
+
+# The demo's own correction was applied during seeding. The two derived runs never
+# touched the corrected dataset version, so their being tainted is exactly the
+# derived-lineage behavior the project claims - not anything a dataset search
+# could have produced.
+status, detail_051 = call("GET", "/api/v1/experiments/exp_051?project_id=project_demo")
+check("a derived run is reachable", status == 200, str(status))
+if status == 200:
+    check(
+        "the derived run carries the correction's taint",
+        detail_051.get("quality_status") == "needs_review",
+        str(detail_051.get("quality_status")),
+    )
+
+# The seeded correction opened its review items at seed time: three direct users
+# of the corrected version, plus the two derived runs, which never touched that
+# dataset version at all - reaching them is the derived-lineage behavior, not
+# something a dataset search could ever produce.
+status, queue = call("GET", f"/api/v1/projects/{PROJECT}/review-queue")
+check("demo review queue is 200", status == 200, str(status))
+if status == 200:
+    items = queue if isinstance(queue, list) else []
+    queued = {i.get("experiment_id"): i for i in items if i.get("experiment_id")}
+    check(
+        "the direct users are in review",
+        {"exp_001", "exp_002", "exp_003"} <= set(queued),
+        str(sorted(queued)),
+    )
+    check(
+        "the correction reaches derived runs it never touched",
+        {"exp_051", "exp_052"} <= set(queued),
+        str(sorted(queued)),
+    )
+    check(
+        "the derived run's review cites its lineage",
+        "derived" in str(queued.get("exp_051", {}).get("reason", "")).lower(),
+        str(queued.get("exp_051", {}).get("reason"))[:120],
+    )
+
+status, detail_053 = call("GET", "/api/v1/experiments/exp_053?project_id=project_demo")
+if status == 200:
+    check(
+        "the repaired-version control stays unaffected",
+        detail_053.get("quality_status") == "valid",
+        str(detail_053.get("quality_status")),
+    )
 
 status, graph = call("GET", f"/api/v1/projects/{PROJECT}/graph?limit=800")
 check("graph is 200", status == 200, str(status))
@@ -142,6 +194,13 @@ if status == 200:
     check("answer cites only retrieved runs", (answer.get("grounding") or {}).get("is_grounded", True) is True)
     check("answer reports caveats", isinstance(answer.get("uncertainties"), list))
     check("withheld evidence is labelled, not deleted", all("status" in e for e in answer.get("excluded_evidence", [])))
+    if answer.get("excluded_evidence"):
+        excluded_ids = {e.get("id") or e.get("experiment_id") for e in answer["excluded_evidence"]}
+        check(
+            "the derived runs are withheld by the copilot too",
+            {"exp_051", "exp_052"} <= excluded_ids,
+            str(sorted(i for i in excluded_ids if i and i.startswith(("exp_047", "exp_05"))) or "none"),
+        )
 
 status, rec_set = call("POST", f"/api/v1/projects/{PROJECT}/recommendations", {"objective": "Improve validation accuracy within a small budget", "compute_budget_gpu_hours": 2})
 check("recommendations are 200", status == 200, str(status) if status != 200 else json.dumps(rec_set)[:200])

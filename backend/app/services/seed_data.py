@@ -1,6 +1,6 @@
 """
 Seed Data Generator for RUNWISE.
-Conforms to PRD Section 14 and Section 4 of Person A specification.
+Conforms to PRD Section 14 and Section 4 of the graph-layer specification.
 
 Generates:
 1. Ground-truth demo scenario:
@@ -8,10 +8,10 @@ Generates:
    - Experiment E2 (tuned_xgboost) uses D1 and configuration derived from E1 (parent = E1).
    - Experiment E3 (distilled_xgboost) derived from E2 (parent = E2) and produces Claim C1.
    - Experiment E_control (resnet_vision) uses dataset version D2 (dataset_v2), completely unaffected.
-2. A diverse batch of 50 synthetic experiments across multiple model families:
-   - gradient_boosting, transformer, cnn, random_forest, linear_regression
-   - multiple dataset versions
-   - varying metrics, compute costs, and parent relationships
+2. Three lineage-amplifier runs (see get_lineage_amplifier_runs) so an impact
+   correction has a derived descendant to reach that dataset matching cannot.
+3. A diverse generated batch that fills the project up to `total` runs across
+   multiple model families, dataset versions, metrics, costs and parent links.
 """
 
 import json
@@ -153,9 +153,140 @@ def get_demo_lineage_scenario(project_id: str = "project_demo") -> List[Dict[str
     ]
 
 
+def get_lineage_amplifier_runs(project_id: str = "project_demo") -> List[Dict[str, Any]]:
+    """
+    Three runs that make derived-lineage impact observable instead of theoretical.
+
+    exp_051 and exp_052 descend from exp_002 without ever touching the dataset
+    version a correction targets. What taints them is the derivation - one ported
+    the leaked model's distillation, the other swept its configuration - so an
+    impact analysis that only matches dataset ids cannot see them at all, while a
+    graph traversal through PARENT_OF must. Without runs like these, a benchmark
+    comparing the two strategies ties by construction.
+
+    exp_053 is the deliberate control: a fresh, unparented baseline on the
+    repaired fraud v2. It stays valid, so invalidation is surgical rather than a
+    blanket taint of everything named similar, and its measurement is recorded
+    with a protocol, so it remains citable evidence on its own.
+    """
+    return [
+        {
+            "id": "exp_051",
+            "project_id": project_id,
+            "name": "distilled_port_sales",
+            "model_family": "gradient_boosting",
+            "dataset_name": "tabular_sales",
+            "dataset_version": "v3",
+            "parent_experiment_id": "exp_002",
+            "status": "completed",
+            "duration_seconds": 2160,
+            "compute_cost_gpu_hours": 0.6,
+            "random_seed": 7,
+            "configuration": {
+                "max_depth": 6,
+                "learning_rate": 0.1,
+                "n_estimators": 120,
+                "distillation_source": "exp_002"
+            },
+            "metrics": [
+                {
+                    "name": "validation_accuracy",
+                    "value": 0.903,
+                    "direction": "maximize",
+                    "evaluation_split": "validation",
+                    "evaluation_protocol": "stratified_5fold"
+                },
+                {
+                    "name": "validation_loss",
+                    "value": 0.44,
+                    "direction": "minimize",
+                    "evaluation_split": "validation"
+                }
+            ],
+            "description": "Ported the exp_002 learner to tabular_sales v3 to test whether its tuned configuration transfers. Its conclusions rest on exp_002's validity, not on this dataset."
+        },
+        {
+            "id": "exp_052",
+            "project_id": project_id,
+            "name": "ported_lr_sweep",
+            "model_family": "gradient_boosting",
+            "dataset_name": "tabular_sales",
+            "dataset_version": "v3",
+            "parent_experiment_id": "exp_051",
+            "status": "completed",
+            "duration_seconds": 1800,
+            "compute_cost_gpu_hours": 0.5,
+            "random_seed": 8,
+            "configuration": {
+                "max_depth": 6,
+                "learning_rate": 0.05,
+                "n_estimators": 120,
+                "distillation_source": "exp_051"
+            },
+            "metrics": [
+                {
+                    "name": "validation_accuracy",
+                    "value": 0.897,
+                    "direction": "maximize",
+                    "evaluation_split": "validation",
+                    "evaluation_protocol": "stratified_5fold"
+                },
+                {
+                    "name": "validation_loss",
+                    "value": 0.46,
+                    "direction": "minimize",
+                    "evaluation_split": "validation"
+                }
+            ],
+            "description": "Single-variable sweep of learning_rate (0.1 -> 0.05) on the exp_051 port, two derivation steps away from the corrected data."
+        },
+        {
+            "id": "exp_053",
+            "project_id": project_id,
+            "name": "xgboost_rebuilt_v2",
+            "model_family": "gradient_boosting",
+            "dataset_name": "tabular_fraud",
+            "dataset_version": "v2",
+            "status": "completed",
+            "duration_seconds": 3240,
+            "compute_cost_gpu_hours": 0.9,
+            "random_seed": 42,
+            "configuration": {
+                "max_depth": 5,
+                "learning_rate": 0.1,
+                "n_estimators": 150,
+                "subsample": 0.8
+            },
+            "metrics": [
+                {
+                    "name": "validation_accuracy",
+                    "value": 0.921,
+                    "direction": "maximize",
+                    "evaluation_split": "validation",
+                    "evaluation_protocol": "stratified_5fold"
+                },
+                {
+                    "name": "validation_loss",
+                    "value": 0.31,
+                    "direction": "minimize",
+                    "evaluation_split": "validation"
+                }
+            ],
+            "description": "Fresh baseline on the repaired tabular_fraud v2, no derivation. Scores below the v1 runs because split leakage inflated v1, which is the expectation, not a regression."
+        }
+    ]
+
+
 def generate_synthetic_experiments(project_id: str = "project_demo", total: int = 50) -> List[Dict[str, Any]]:
-    """Generates 50 structured synthetic experiments across diverse model families."""
+    """Generates a structured synthetic project across diverse model families.
+
+    The base set is the demo lineage scenario plus the lineage amplifiers. The
+    generated block continues the id sequence at exp_005 and keys every property
+    off that sequence number, so existing run ids keep the properties they have
+    always had; only the runs added since stay net-new.
+    """
     experiments = get_demo_lineage_scenario(project_id)
+    experiments.extend(get_lineage_amplifier_runs(project_id))
 
     families = [
         ("transformer", ["bert_tiny", "distilbert", "roberta_base", "gpt2_small"], "nlp_sentiment"),
@@ -167,19 +298,26 @@ def generate_synthetic_experiments(project_id: str = "project_demo", total: int 
 
     count = len(experiments)
     fam_idx = 0
+    # exp_004 was never minted and stays unused, so generated ids line up with
+    # the sequence number instead of the list position.
+    seq = 5
 
     while count < total:
         fam_name, arch_list, ds_name = families[fam_idx % len(families)]
         fam_idx += 1
-        idx = count + 1
+        idx = seq
+        seq += 1
         v_tag = f"v{((idx % 3) + 1)}"
         arch = arch_list[idx % len(arch_list)]
         exp_id = f"exp_{idx:03d}"
 
-        # Assign a parent for roughly half the runs
+        # Assign a parent for roughly half the runs. The parent must itself be a
+        # generated run, so the sequence starts where both parent and child exist:
+        # exp_006's parent used to point at exp_004, which was never created, and
+        # the parent link was silently dropped on ingest.
         parent_id = None
-        if idx > 6 and idx % 2 == 0:
-            parent_id = f"exp_{max(1, idx - 2):03d}"
+        if idx > 7 and idx % 2 == 0:
+            parent_id = f"exp_{idx - 2:03d}"
 
         acc = round(0.70 + ((idx * 17) % 25) / 100.0, 3)
         loss = round(0.50 - ((idx * 13) % 30) / 100.0, 3)

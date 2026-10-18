@@ -1,6 +1,6 @@
 """API routers for RUNWISE.
 
-Includes Person A's experiment, lineage, and import routers, and Person B's
+Includes the graph layer's experiment, lineage, and import routers, and the reasoning layer's
 recommendation and copilot routers.
 """
 

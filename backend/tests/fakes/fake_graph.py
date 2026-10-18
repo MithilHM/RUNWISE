@@ -165,6 +165,31 @@ class FakeGraphService(GraphService):
             ):
                 affected.append(experiment.id)
 
+        # A run's validity also rests on what it was derived from: everything
+        # descending from an affected run, however deep, is affected transitively
+        # even when its own dataset version is clean. Mirrors the repository's
+        # PARENT_OF traversal so the fake behaves like the contract it stands in for.
+        children: dict[str, list[str]] = {}
+        for experiment in self.experiments.values():
+            if experiment.project_id != correction.project_id:
+                continue
+            if experiment.parent_experiment_id:
+                children.setdefault(experiment.parent_experiment_id, []).append(
+                    experiment.id
+                )
+
+        descendants: list[str] = []
+        touched = set(affected)
+        frontier = list(touched)
+        while frontier:
+            current = frontier.pop()
+            for child_id in children.get(current, []):
+                if child_id not in touched:
+                    touched.add(child_id)
+                    descendants.append(child_id)
+                    frontier.append(child_id)
+        descendants.sort()
+
         # Everything that used the same dataset version but was not listed above
         # is unaffected-by-direct-effect yet still relevant context.
         return CorrectionImpact(
@@ -172,10 +197,11 @@ class FakeGraphService(GraphService):
             source_id=correction.source_id,
             summary=correction.description,
             directly_affected_experiment_ids=sorted(affected),
+            indirectly_affected_experiment_ids=descendants,
             unaffected_experiment_ids=sorted(
                 e.id
                 for e in self.experiments.values()
-                if e.project_id == correction.project_id and e.id not in affected
+                if e.project_id == correction.project_id and e.id not in touched
             ),
         )
 

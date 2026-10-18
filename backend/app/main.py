@@ -1,8 +1,8 @@
 """
 RUNWISE FastAPI Application Entrypoint.
 Conforms to PRD Section 7, Section 9, and Section 19.
-Integrates routers from Person A (Graph/Experiments/Imports/Corrections)
-and Person B (Recommendations/Copilot).
+Integrates the graph-layer routers (Graph/Experiments/Imports/Corrections)
+and the reasoning-layer routers (Recommendations/Copilot).
 """
 
 import logging
@@ -56,7 +56,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Wire graph service into application state for Person B recommendation / copilot dependencies
+# Wire the graph service into application state for the recommendation / copilot dependencies
 app.state.graph_service = GraphRepository()
 
 # CORS for the frontend dev server. Origins are explicit: ``allow_origins=["*"]``

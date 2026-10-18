@@ -44,9 +44,10 @@ def run_seed(reset: bool = False):
     init_res = initialize_schema(graph)
     logger.info(f"Schema initialized: {init_res}")
 
-    logger.info("Generating 50 synthetic experiments across multiple model families...")
+    total = 53
+    logger.info(f"Generating {total} synthetic experiments across multiple model families...")
     project_id = "project_demo"
-    experiments = generate_synthetic_experiments(project_id=project_id, total=50)
+    experiments = generate_synthetic_experiments(project_id=project_id, total=total)
 
     ingestion = IngestionService()
     logger.info(f"Ingesting {len(experiments)} experiments into FalkorDB...")

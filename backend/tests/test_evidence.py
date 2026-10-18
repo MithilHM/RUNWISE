@@ -17,6 +17,7 @@ from app.models.contracts import (
     ClaimStatus,
     ComparabilityReasonCode,
     ComparabilityStatus,
+    CorrectionRecord,
     EvidenceStatus,
     ExperimentRecord,
     MetricDirection,
@@ -690,6 +691,60 @@ def test_answer_names_withheld_evidence(disputed_graph):
     assert answer["excluded_evidence"]
     assert "Withheld" in answer["answer"] or "withheld" in answer["answer"]
     assert answer["corrections_considered"]
+
+
+def test_run_derived_from_a_disputed_run_is_withheld_too(disputed_graph):
+    """Trust follows derivation, not only dataset identity: a clean dataset does
+    not launder an invalidated parent (PRD 5 dependence, FR-6 propagation)."""
+    derived = make_experiment(
+        "exp_derived_ok",
+        value=0.92,
+        dataset_version_id=VERSION_V2,
+        dataset_version="v2",
+        configuration={"max_depth": 6},
+        parent_experiment_id="exp_baseline",
+    )
+    disputed_graph.experiments[derived.id] = derived
+
+    answer = _ask(_client(disputed_graph), "Which run has the best validation_accuracy?", budget=20.0)
+
+    withheld = {item["experiment_id"] for item in answer["excluded_evidence"]}
+    assert {"exp_baseline", "exp_derived_ok"} <= withheld
+    # Transparency claims may NAME withheld runs; support must not USE them.
+    cited = {exp["id"] for exp in answer.get("supporting_experiments", []) if isinstance(exp, dict)}
+    for proposal in answer["recommendations"]:
+        cited |= set(proposal.get("baseline_experiment_ids", [])) | set(
+            proposal.get("supporting_experiment_ids", [])
+        )
+    assert not cited & {"exp_baseline", "exp_derived_ok"}
+
+
+def test_an_unsettled_correction_blocks_evidence_whatever_status_word(graph):
+    """The graph layer historically labelled a recorded correction 'active'; the
+    trust gate must never treat an unsettled correction as settled because the
+    word it recognises is 'open'."""
+    correction = CorrectionRecord(
+        id="corr_active_vocabulary",
+        project_id=PROJECT_ID,
+        source_id=VERSION_V1,
+        source_type="dataset_version",
+        description="Train-validation leakage in v1.",
+        status="active",
+        created_by="benchmark",
+    )
+    graph.corrections[correction.id] = correction
+
+    answer = _ask(_client(graph), "Which run has the best validation_accuracy?", budget=20.0)
+
+    withheld = {item["experiment_id"] for item in answer["excluded_evidence"]}
+    assert {"exp_baseline", "exp_depth6"} <= withheld
+    # Transparency claims may NAME withheld runs; support must not USE them.
+    cited = {exp["id"] for exp in answer.get("supporting_experiments", []) if isinstance(exp, dict)}
+    for proposal in answer["recommendations"]:
+        cited |= set(proposal.get("baseline_experiment_ids", [])) | set(
+            proposal.get("supporting_experiment_ids", [])
+        )
+    assert not cited & withheld
 
 
 def test_answer_excludes_disputed_runs_from_the_comparable_set(disputed_graph):
