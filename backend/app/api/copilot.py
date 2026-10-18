@@ -28,7 +28,7 @@ An LLM is never asked what happened, only how to phrase what the engine found.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Path, Body
 
