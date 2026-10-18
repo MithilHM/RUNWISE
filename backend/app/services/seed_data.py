@@ -312,9 +312,8 @@ def generate_synthetic_experiments(project_id: str = "project_demo", total: int 
         exp_id = f"exp_{idx:03d}"
 
         # Assign a parent for roughly half the runs. The parent must itself be a
-        # generated run, so the sequence starts where both parent and child exist:
-        # exp_006's parent used to point at exp_004, which was never created, and
-        # the parent link was silently dropped on ingest.
+        # generated run: parents are drawn from runs earlier in the same block,
+        # starting where both parent and child numbers exist.
         parent_id = None
         if idx > 7 and idx % 2 == 0:
             parent_id = f"exp_{idx - 2:03d}"

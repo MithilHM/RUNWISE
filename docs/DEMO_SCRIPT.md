@@ -51,7 +51,7 @@ The seeded demo state already carries the `tabular_fraud_v1` correction, so ever
      - **Source:** `tabular_fraud_v1`
      - **Reason:** `Data leakage discovered between train and test splits`
    - **Show Graph Invalidation Traversal** (the seeded replay walks the identical paths, deterministically):
-     - FalkorDB follows multi-hop edges: `(tabular_fraud_v1)<-[:USES_DATASET_VERSION]-(exp_002)<-[:PARENT_OF]-(exp_051)-[:PARENT_OF]->(exp_052)`.
+     - FalkorDB follows multi-hop edges: `(tabular_fraud_v1)<-[:USES_DATASET_VERSION]-(exp_002)-[:PARENT_OF]->(exp_051)-[:PARENT_OF]->(exp_052)`.
      - `exp_001`, `exp_002` and `exp_003` turn amber as **directly** affected.
      - **The magic moment:** `exp_051` and `exp_052` turn amber too — **runs that never touched the defective dataset version at all**, caught only because validity follows derivation through the graph. No dataset-name search can reach them. (The review queue names them "Transitively derived from affected predecessor in lineage.")
      - **Point to `exp_053` (fresh baseline on the repaired v2):** stays green — RUNWISE does not blindly scrap clean research, recorded with its evaluation protocol so it remains citable.

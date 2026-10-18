@@ -2,7 +2,7 @@
 RUNWISE Evaluation & Baseline Benchmark Suite.
 
 Measures what a SHALLOW retrieval can and cannot do against the production
-graph-backed impact service, over the 9 PRD Section 13 metrics.
+graph-backed impact service, across the PRD Section 13 metrics.
 
 The two strategies under comparison:
 
@@ -180,11 +180,7 @@ def run_benchmark() -> dict:
     comp_engine = ComparabilityEngine()
     rec_engine = RecommendationEngine(graph_service, comparability=comp_engine, config=RankingConfig())
 
-    # --- Metric 1 & 2: Ingestion & Duplicate Rejection ---
-    valid_count = sum(1 for r in records if r.id and r.project_id and r.name)
-    import_success_rate = (valid_count / len(records)) * 100.0 if records else 100.0
-
-    # The production ingestion path against FalkorDB on a throwaway graph.
+    # --- Metric 1 & 2: Ingestion & Duplicate Rejection (measured, per run) ---
     bench_client = FalkorDBClient(graph_name=BENCH_GRAPH)
     health = bench_client.check_health()
     if health.get("status") != "healthy":
@@ -194,6 +190,13 @@ def run_benchmark() -> dict:
         )
 
     try:
+        # Drop any leftover bench graph from an earlier interrupted run first, so
+        # a rerun always measures a fresh seed instead of recovering dirty state.
+        try:
+            bench_client.delete_graph()
+        except Exception as start_error:
+            print(f"[bench] nothing to drop: {start_error}")
+
         initialize_schema(bench_client.get_graph())
         repository = GraphRepository(client=bench_client)
         ingestion = IngestionService(repository=repository)
@@ -204,6 +207,11 @@ def run_benchmark() -> dict:
         )
         t_ingest1 = time.perf_counter()
         import_time_ms = (t_ingest1 - t_ingest0) * 1000.0
+        # The success rate is what the import actually accepted, not a count of
+        # well-formed generator records made before ingestion ran.
+        import_success_rate = (
+            summary.imported / len(raw_experiments) * 100.0 if raw_experiments else 100.0
+        )
 
         # A second pass of identical records must be rejected, not double-counted.
         dup_summary = ingestion.ingest_records(
@@ -240,7 +248,12 @@ def run_benchmark() -> dict:
             impact.indirectly_affected_experiment_ids
         )
     finally:
-        bench_client.delete_graph()
+        try:
+            bench_client.delete_graph()
+        except Exception as cleanup_error:
+            # A failed cleanup must not mask the measurement result above; the
+            # leftover graph is dropped at the start of the next run anyway.
+            print(f"[bench] warning: could not drop the bench graph: {cleanup_error}")
 
     # Naive shallow retrieval.
     baseline = RetrievalBaseline(records)
@@ -404,8 +417,8 @@ def print_report(res: dict) -> str:
             f"| **False-Positive Impact Rate** | **{res['graph']['false_positive_impact_rate']:.1f}%** | "
             f"{res['baseline']['false_positive_impact_rate']:.1f}% | "
             f"**{res['baseline']['false_positive_impact_rate'] - res['graph']['false_positive_impact_rate']:.1f} pts spared** "
-            f"(the baseline wrongly flags {fp_ids}, a clean run on the repaired v2, "
-            "because the dataset name matches) |"
+            f"(the baseline sweeps {fp_ids} into the affected set: clean run(s) on "
+            "the repaired v2, taken because the dataset name matches) |"
         ),
         (
             f"| **Identification Latency (traversal)** | "

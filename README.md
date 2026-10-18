@@ -67,7 +67,7 @@ cd frontend && npm install && npm test
 With the backend running, these check the things unit tests cannot:
 
 ```bash
-python scripts/smoke_test.py            # 66 checks over every endpoint, against live data
+python scripts/smoke_test.py            # 75 checks over every endpoint, against live data
 python scripts/verify_api_contract.py   # frontend types vs the live OpenAPI schema
 python scripts/probe_cypher_support.py  # which Cypher this FalkorDB build accepts
 ```
@@ -243,7 +243,7 @@ If the code and `ranking_rules.md` disagree, the code is the bug.
 | `scripts/evaluate.py` | Automated benchmark comparing FalkorDB graph traversal vs naive retrieval baseline across 9 PRD metrics. |
 | `scripts/seed_demo.py` | Generate and ingest 53 synthetic experiments, then run a real correction. Idempotent. `--reset` drops the graph first. |
 | `scripts/reset_graph.py` | Drop the graph and optionally re-seed. The demo reset procedure. |
-| `scripts/smoke_test.py` | 66 end-to-end checks against a running backend and live FalkorDB. |
+| `scripts/smoke_test.py` | 75 end-to-end checks against a running backend and live FalkorDB. |
 | `scripts/verify_api_contract.py` | Fails when the frontend types and the backend's OpenAPI schema disagree. |
 | `scripts/probe_cypher_support.py` | Reports which Cypher constructs the running FalkorDB accepts. |
 | `scripts/build_sample_csv.py` | Regenerates both sample files from the seed generator itself, with real JSON in the nested cells. |

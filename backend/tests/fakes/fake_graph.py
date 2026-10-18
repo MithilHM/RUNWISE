@@ -166,9 +166,10 @@ class FakeGraphService(GraphService):
                 affected.append(experiment.id)
 
         # A run's validity also rests on what it was derived from: everything
-        # descending from an affected run, however deep, is affected transitively
-        # even when its own dataset version is clean. Mirrors the repository's
-        # PARENT_OF traversal so the fake behaves like the contract it stands in for.
+        # descending from an affected run is affected transitively, even when
+        # its own dataset version is clean. Mirrors the repository's PARENT_OF
+        # traversal (the repository bounds the hop depth; the histories this
+        # fake serves stay far below that bound, so the two agree in practice).
         children: dict[str, list[str]] = {}
         for experiment in self.experiments.values():
             if experiment.project_id != correction.project_id:
