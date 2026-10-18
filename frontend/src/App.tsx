@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { ProjectProvider } from './components/ProjectContext'
 import { LoadingState } from './components/States'
+import { ShowcaseHeroPage } from './pages/ShowcaseHeroPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 
 // The lineage screen pulls in the force-graph renderer and the copilot pulls in the
@@ -15,7 +16,8 @@ export default function App() {
     <ProjectProvider>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<WorkspacePage />} />
+          <Route index element={<ShowcaseHeroPage />} />
+          <Route path="workspace" element={<WorkspacePage />} />
           <Route
             path="copilot"
             element={

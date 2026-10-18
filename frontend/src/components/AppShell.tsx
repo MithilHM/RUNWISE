@@ -4,9 +4,10 @@ import { useProject } from '../lib/projectContext'
 import { DemoModeBadge, ErrorState, LoadingState } from './States'
 
 const NAV = [
-  { to: '/', label: 'Experiment workspace', hint: 'Screen A' },
-  { to: '/copilot', label: 'Research copilot', hint: 'Screen B' },
-  { to: '/lineage', label: 'Lineage & impact', hint: 'Screen C' },
+  { to: '/', label: '⚡ Hackathon Showcase', hint: 'Dataset & Lineage Story' },
+  { to: '/workspace', label: 'Experiment workspace', hint: 'Screen A: All Runs Table' },
+  { to: '/copilot', label: 'Research copilot', hint: 'Screen B: Custom Queries' },
+  { to: '/lineage', label: 'Lineage & impact', hint: 'Screen C: Raw Graph & Queue' },
 ]
 
 export function AppShell() {
