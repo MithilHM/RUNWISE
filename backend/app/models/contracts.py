@@ -89,16 +89,26 @@ class DatasetProfile(BaseModel):
     split_hash: str = ""
     created_at: str = ""
     target_inferred: bool = True
+    target: str = ""
     columns: List[ColumnProfile] = Field(default_factory=list)
     dropped_columns: List[DroppedColumn] = Field(default_factory=list)
 
-    @property
-    def target(self) -> str:
-        """Name of the confirmed or inferred target column."""
-        for column in self.columns:
-            if column.role == "target":
-                return column.name
-        return ""
+    @model_validator(mode="after")
+    def _derive_target(self) -> "DatasetProfile":
+        """Keeps `target` in step with the column roles.
+
+        `target` is a real field rather than a derived property because it has to
+        survive serialisation: the API returns a `DatasetProfile`, and a property
+        is simply absent from the response, so a client could see which column is
+        the label only by walking `columns` itself. Whichever column is marked
+        `role="target"` wins, so the two can never disagree.
+        """
+        marked = next((c.name for c in self.columns if c.role == "target"), "")
+        if marked:
+            self.target = marked
+        elif not self.target:
+            self.target = ""
+        return self
 
 
 class ParamSpec(BaseModel):
@@ -369,6 +379,13 @@ class WhyRecord(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     evidence: List[EvidenceItem] = Field(default_factory=list)
     highlight: List[str] = Field(default_factory=list)
+
+
+# The harness loop imports this record under the name `HarnessDecision` (aliasing
+# it to `Decision` locally). Kept as an alias rather than a second class so there
+# is exactly one definition of "who chose this and why", whichever name a caller
+# happens to use.
+HarnessDecision = Decision
 
 
 class LogEntry(BaseModel):

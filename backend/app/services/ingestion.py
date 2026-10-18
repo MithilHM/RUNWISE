@@ -317,6 +317,7 @@ class DatasetIngestor:
             n_classes=len(classes),
             class_balance=class_balance,
             created_at=_utcnow(),
+            target=target,
             target_inferred=target_hint is None,
             columns=columns,
             dropped_columns=dropped,

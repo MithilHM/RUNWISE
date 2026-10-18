@@ -213,6 +213,25 @@ class InMemoryRunLogger:
 
         return entry
 
+    def history(self, run_id: str, after_seq: int = 0) -> list[LogEntry]:
+        """Entries after `after_seq`, in order.
+
+        Scoped to the run rather than returning everything: the real logger reads
+        back from the graph filtered by `run_id`, and a fake that returned another
+        run's lines would let a polling client double-count.
+        """
+        entries = [
+            entry for entry in self.logs
+            if entry.run_id == run_id and entry.seq > after_seq
+        ]
+        entries.sort(key=lambda e: e.seq)
+        return entries
+
+    def publish(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
+        """Broadcasts a non-log notification. Not recorded as a line, matching the
+        real logger so a subscriber sees the same two kinds of message."""
+        self.broadcast_event(run_id, event_type, payload)
+
     def broadcast_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         if run_id in self._subscribers:
             event = LogEvent(type=event_type, payload=payload)  # type: ignore

@@ -416,6 +416,8 @@ export interface DatasetProfile {
   split_hash: string
   created_at: string
   target_inferred: boolean
+  /** The confirmed or inferred label column. Serialised by the backend. */
+  target: string
   columns: ColumnProfile[]
   dropped_columns: DroppedColumn[]
 }

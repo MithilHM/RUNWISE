@@ -19,6 +19,8 @@ from app.models.contracts import (
     Proposal,
     RunState,
     TrialOutcome,
+    is_better,
+    is_number,
 )
 
 from app.ports import DecisionMaker, GraphStore, RunLogger, Trainer
@@ -213,12 +215,15 @@ class HarnessRun:
             trial.run_id = self.run_id
             trial.step = step
 
-        # Update best metric
-        if trial.status == "SUCCESS" and trial.metric_value is not None:
-            if self.state.best_metric is None or trial.metric_value > self.state.best_metric:
+        # Update best metric.
+        #
+        # `is_better` rather than `>`: it is direction-aware, so a run optimising a
+        # metric where lower is better keeps the lowest value, and it rejects NaN,
+        # which would otherwise win its first comparison and never be displaced.
+        if trial.status == "SUCCESS" and is_number(trial.metric_value):
+            if is_better(trial.metric_value, self.state.best_metric, self.state.metric_name):
                 self.state.best_metric = trial.metric_value
                 self.state.best_trial_id = trial.trial_id
-                self.state.best_trial = trial
 
         # Mutate Graph
         self.set_status("MUTATING", "mutate", f"Recording trial {trial.trial_id} and decision into graph")

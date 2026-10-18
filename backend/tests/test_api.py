@@ -13,6 +13,8 @@ Tests:
 """
 
 import io
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -96,20 +98,22 @@ def test_unknown_run_returns_404_canonical_envelope():
 
 
 def test_pr_auc_multiclass_returns_422():
-    # Upload multiclass dataset
+    # A real multiclass dataset: every class needs enough members for a split,
+    # so this is 60 rows rather than the four the original fixture used.
     csv_content = (
         "f1,f2,class_target\n"
-        "1.0,0.1,A\n"
-        "2.0,0.2,B\n"
-        "3.0,0.3,C\n"
-        "4.0,0.4,A\n"
+        + "".join(
+            f"{i * 0.37 % 3:.2f},{(i * 0.11) % 2:.2f},{'ABC'[i % 3]}\n"
+            for i in range(1, 61)
+        )
     ).encode("utf-8")
 
     upload_res = client.post(
         "/api/v1/datasets",
         files={"file": ("multiclass.csv", io.BytesIO(csv_content), "text/csv")},
     )
-    assert upload_res.status_code == 201
+    assert upload_res.status_code == 201, upload_res.text
+    assert upload_res.json()["task"] == "multiclass", upload_res.json()
     ds_id = upload_res.json()["id"]
 
     # Try creating run with pr_auc on multiclass
@@ -127,28 +131,55 @@ def test_pr_auc_multiclass_returns_422():
     err_body = run_res.json()
     assert "detail" in err_body
     assert err_body["detail"][0]["code"] == "metric_incompatible"
-    assert "pr_auc is binary-only" in err_body["detail"][0]["message"]
+    assert "pr_auc" in err_body["detail"][0]["message"]
+    assert "multiclass" in err_body["detail"][0]["message"]
 
 
 def test_run_lifecycle_and_why_explanation():
+    # A real upload, not an injected fixture: the router resolves the dataset
+    # through the ingestor, so a made-up id is now (correctly) a 404.
+    csv_content = (
+        "f1,f2,target\n"
+        + "".join(
+            f"{i * 0.37 % 3:.2f},{(i * 0.11) % 2:.2f},{int(i % 2)}\n" for i in range(1, 61)
+        )
+    ).encode("utf-8")
+    upload_res = client.post(
+        "/api/v1/datasets",
+        files={"file": ("lifecycle.csv", io.BytesIO(csv_content), "text/csv")},
+    )
+    assert upload_res.status_code == 201, upload_res.text
+    dataset_id = upload_res.json()["id"]
+
     # 1. Create run
     run_res = client.post(
         "/api/v1/runs",
         json={
-            "dataset_id": "ds_demo",
+            "dataset_id": dataset_id,
             "model_ids": ["xgboost", "lightgbm"],
             "mode": "autonomous",
             "metric": "accuracy",
             "budget": 2,
         },
     )
-    assert run_res.status_code == 201
+    assert run_res.status_code == 201, run_res.text
     run_data = run_res.json()
     run_id = run_data["run_id"]
 
-    # 2. Query why record
+    # 2. Wait for the run to produce at least one trial to explain.
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        state = client.get(f"/api/v1/runs/{run_id}").json()
+        if state.get("best_trial_id"):
+            break
+        if state.get("status") in ("COMPLETED", "FAILED"):
+            break
+        time.sleep(0.5)
+    assert state.get("best_trial_id"), f"run produced nothing to explain: {state}"
+
+    # 3. Query why record
     why_res = client.get(f"/api/v1/runs/{run_id}/why")
-    assert why_res.status_code == 200
+    assert why_res.status_code == 200, why_res.text
     why_record = why_res.json()
     assert "decision" in why_record
     assert "evidence" in why_record

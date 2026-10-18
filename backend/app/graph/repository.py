@@ -605,55 +605,115 @@ class FalkorDBGraphStore:
     def _scoped_ids(
         self, run_id: Optional[str] = None, dataset_id: Optional[str] = None
     ) -> List[str]:
-        """Every node id in scope for a run, a dataset, or the whole graph."""
+        """Every node id in scope for a run, a dataset, or the whole graph.
+
+        Deliberately *not* one query with a chain of `OPTIONAL MATCH`es. Each
+        optional match multiplies the rows of the ones before it: three trials
+        against nine settings and fourteen log entries is already a five-figure
+        intermediate, and FalkorDB started silently truncating it — a run would
+        report two of its three trials at random. Several small independent
+        queries, unioned here, cost a handful of sub-millisecond round trips and
+        return the same set every time.
+        """
+        found: set[str] = set()
+        actors: set[str] = set()
+
+        def collect(cypher: str, params: Dict[str, Any]) -> None:
+            for row in self._run(cypher, params):
+                for cell in row:
+                    if cell:
+                        found.add(str(cell))
+
+        def collect_actors(cypher: str, params: Dict[str, Any]) -> None:
+            """Actor names, mapped to their node ids.
+
+            An `Agent` node is keyed `agent_<actor>`, so the actor string on the
+            decision is not itself a node id and cannot be collected directly.
+            """
+            for row in self._run(cypher, params):
+                if row and row[0]:
+                    actors.add(str(row[0]))
+
         if run_id:
-            rows = self._run(
-                """
-                MATCH (r:Run {id: $run_id})
-                OPTIONAL MATCH (r)-[:HAS_TRIAL]->(t:Trial)
-                OPTIONAL MATCH (t)-[:USES_SETTING]->(s:Setting)
-                OPTIONAL MATCH (m:Model)-[:OF_MODEL]->(s)
-                OPTIONAL MATCH (s)-[:FOR_PARAM]->(p:Param)
-                OPTIONAL MATCH (t)-[:DERIVED_FROM]->(parent:Trial)
-                OPTIONAL MATCH (t)-[:USES_MODEL]->(tm:Model)
-                OPTIONAL MATCH (d:Decision)-[:CHOSE]->(t)
-                OPTIONAL MATCH (d)-[:CITES]->(c)
-                OPTIONAL MATCH (a:Agent)-[:DECIDED]->(d)
-                OPTIONAL MATCH (r)-[:ON_DATASET]->(ds:Dataset)
-                OPTIONAL MATCH (ds)-[:HAS_COLUMN]->(col:Column)
-                OPTIONAL MATCH (l:LogEntry)-[:IN_RUN]->(r)
-                RETURN r.id, t.id, s.id, m.id, p.id, parent.id, tm.id, d.id, c.id,
-                       a.id, ds.id, col.id, l.id
-                """,
+            collect(
+                "MATCH (r:Run {id: $run_id}) RETURN r.id, r.dataset_id",
                 {"run_id": run_id},
             )
-            found = {str(cell) for row in rows for cell in row if cell}
+            collect(
+                "MATCH (r:Run {id: $run_id})-[:HAS_TRIAL]->(t:Trial) RETURN t.id, t.model_id",
+                {"run_id": run_id},
+            )
+            collect(
+                "MATCH (t:Trial)-[:USES_SETTING]->(s:Setting) "
+                "WHERE t.run_id = $run_id RETURN s.id, s.param_id, s.model_id",
+                {"run_id": run_id},
+            )
+            collect(
+                "MATCH (d:Decision)-[:DURING]->(r:Run {id: $run_id}) RETURN d.id",
+                {"run_id": run_id},
+            )
+            collect_actors(
+                "MATCH (d:Decision)-[:DURING]->(r:Run {id: $run_id}) RETURN d.actor",
+                {"run_id": run_id},
+            )
+            collect(
+                "MATCH (d:Decision)-[:CITES]->(c) WHERE d.run_id = $run_id RETURN c.id",
+                {"run_id": run_id},
+            )
+            collect(
+                "MATCH (l:LogEntry)-[:IN_RUN]->(r:Run {id: $run_id}) RETURN l.id",
+                {"run_id": run_id},
+            )
+            collect(
+                "MATCH (r:Run {id: $run_id})-[:ON_DATASET]->(d:Dataset) RETURN d.id",
+                {"run_id": run_id},
+            )
+            collect(
+                "MATCH (t:Trial) WHERE t.run_id = $run_id "
+                "OPTIONAL MATCH (t)-[:DERIVED_FROM]->(p:Trial) RETURN p.id",
+                {"run_id": run_id},
+            )
+
         elif dataset_id:
-            # The Model layer is included deliberately: every Trial and Setting in
-            # this view points at a Model node, and a view that omits it renders
-            # edges that terminate in nothing.
-            rows = self._run(
-                """
-                MATCH (ds:Dataset {id: $dataset_id})
-                OPTIONAL MATCH (ds)-[:HAS_COLUMN]->(c:Column)
-                OPTIONAL MATCH (r:Run)-[:ON_DATASET]->(ds)
-                OPTIONAL MATCH (r)-[:HAS_TRIAL]->(t:Trial)
-                OPTIONAL MATCH (t)-[:USES_SETTING]->(s:Setting)
-                OPTIONAL MATCH (s)-[:FOR_PARAM]->(p:Param)
-                OPTIONAL MATCH (t)-[:USES_MODEL]->(tm:Model)
-                OPTIONAL MATCH (m:Model)-[:OF_MODEL]->(s)
-                OPTIONAL MATCH (d:Decision)-[:CHOSE]->(t)
-                OPTIONAL MATCH (a:Agent)-[:DECIDED]->(d)
-                OPTIONAL MATCH (l:LogEntry)-[:IN_RUN]->(r)
-                RETURN ds.id, c.id, r.id, t.id, s.id, p.id, tm.id, m.id, d.id,
-                       a.id, l.id
-                """,
+            found.add(dataset_id)
+            collect(
+                "MATCH (d:Dataset {id: $dataset_id})-[:HAS_COLUMN]->(c:Column) RETURN c.id",
                 {"dataset_id": dataset_id},
             )
-            found = {str(cell) for row in rows for cell in row if cell}
+            collect(
+                "MATCH (r:Run)-[:ON_DATASET]->(d:Dataset {id: $dataset_id}) RETURN r.id",
+                {"dataset_id": dataset_id},
+            )
+            collect(
+                "MATCH (r:Run)-[:ON_DATASET]->(d:Dataset {id: $dataset_id}) "
+                "MATCH (r)-[:HAS_TRIAL]->(t:Trial) RETURN t.id, t.model_id",
+                {"dataset_id": dataset_id},
+            )
+            collect(
+                "MATCH (r:Run)-[:ON_DATASET]->(d:Dataset {id: $dataset_id}) "
+                "MATCH (r)-[:HAS_TRIAL]->(t:Trial)-[:USES_SETTING]->(s:Setting) "
+                "RETURN s.id, s.param_id, s.model_id",
+                {"dataset_id": dataset_id},
+            )
+            collect(
+                "MATCH (r:Run)-[:ON_DATASET]->(d:Dataset {id: $dataset_id}) "
+                "MATCH (dec:Decision)-[:DURING]->(r) RETURN dec.id",
+                {"dataset_id": dataset_id},
+            )
+            collect_actors(
+                "MATCH (r:Run)-[:ON_DATASET]->(d:Dataset {id: $dataset_id}) "
+                "MATCH (dec:Decision)-[:DURING]->(r) RETURN dec.actor",
+                {"dataset_id": dataset_id},
+            )
+            collect(
+                "MATCH (l:LogEntry)-[:IN_RUN]->(r:Run)-[:ON_DATASET]->"
+                "(d:Dataset {id: $dataset_id}) RETURN l.id",
+                {"dataset_id": dataset_id},
+            )
         else:
-            rows = self._run("MATCH (n) RETURN n.id")
-            found = {str(row[0]) for row in rows if row[0]}
+            collect("MATCH (n) RETURN n.id", {})
+
+        found.update(f"agent_{actor}" for actor in actors)
         return sorted(found)
 
     @staticmethod

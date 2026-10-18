@@ -1,20 +1,22 @@
-"""Runs router for autonomous ML harness lifecycle.
+"""Runs router for the autonomous ML harness lifecycle.
 
-Defined in MEMBER_B.md Section 4 (B2 — Routers).
-Implements run creation, pause/resume, human review decision handling,
-explanation why queries, log retrieval, and SSE event streaming.
+Run creation, pause/resume, human review decisions, the "why" query, log
+retrieval, and the SSE event stream.
+
+The harness is wired to the real FalkorDB-backed implementations by default and
+to the in-memory fakes only when `RUNWISE_FAKE=1` is set.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any, Literal, Optional
 from fastapi import APIRouter, Body, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.api.datasets import DATASET_STORE
 from app.api.errors import not_found, unprocessable
 from app.models.contracts import (
     LogEntry,
@@ -23,24 +25,75 @@ from app.models.contracts import (
     RunState,
     WhyRecord,
 )
+from app.services import catalog
 from app.services.harness import HarnessRun, HarnessService
-from tests.fakes.fake_graph import FakeGraphStore
-from tests.fakes.fake_trainer import FakeDecisionMaker, FakeTrainer, InMemoryRunLogger
+from app.services.ingestion import IngestionError, get_ingestor
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
-# Global harness service instance
-_fake_graph = FakeGraphStore()
-_fake_trainer = FakeTrainer()
-_fake_decision = FakeDecisionMaker()
-_fake_logger = InMemoryRunLogger()
 
-harness_service = HarnessService(
-    trainer=_fake_trainer,
-    decision_maker=_fake_decision,
-    graph_store=_fake_graph,
-    run_logger=_fake_logger,
-)
+def _require_dataset(dataset_id: str):
+    """Loads the dataset profile, or 404s.
+
+    A run against a dataset the harness has never seen would fail on its first
+    trial with "Dataset unavailable", which reads like a data bug rather than a
+    wrong id. Rejecting it here names the actual problem.
+    """
+    try:
+        return get_ingestor().get_profile(dataset_id)
+    except IngestionError as exc:
+        if exc.code in ("unknown_dataset", "dataset_evicted"):
+            raise not_found("dataset", dataset_id) from exc
+        raise unprocessable(
+            code=exc.code, message=exc.message, field_name="dataset_id"
+        ) from exc
+
+
+def _use_fakes() -> bool:
+    """Whether to run against in-memory substitutes.
+
+    Off unless `RUNWISE_FAKE=1`. The real FalkorDB store and the real trainer are
+    the product; a fake that silently took their place would let the app appear to
+    work while writing nothing to the graph.
+    """
+    return os.getenv("RUNWISE_FAKE", "").strip().lower() in ("1", "true", "yes")
+
+
+def _build_harness_service() -> HarnessService:
+    """Wires the harness to either the real implementations or the fakes."""
+    if _use_fakes():
+        logger.warning("RUNWISE_FAKE is set: the harness is running on in-memory fakes. "
+                       "Nothing is written to FalkorDB and no model is actually trained.")
+        from tests.fakes.fake_graph import FakeGraphStore
+        from tests.fakes.fake_trainer import (
+            FakeDecisionMaker,
+            FakeTrainer,
+            InMemoryRunLogger,
+        )
+
+        return HarnessService(
+            trainer=FakeTrainer(),
+            decision_maker=FakeDecisionMaker(),
+            graph_store=FakeGraphStore(),
+            run_logger=InMemoryRunLogger(),
+        )
+
+    from app.graph.repository import get_graph_store
+    from app.services.executor import get_trainer
+    from app.services.laya import get_laya
+    from app.services.logs import get_logger_
+
+    return HarnessService(
+        trainer=get_trainer(),
+        decision_maker=get_laya(),
+        graph_store=get_graph_store(),
+        run_logger=get_logger_(),
+    )
+
+
+harness_service = _build_harness_service()
 
 
 class RunsListResponse(BaseModel):
@@ -70,20 +123,32 @@ async def list_runs() -> RunsListResponse:
 
 @router.post("", response_model=RunState, status_code=status.HTTP_201_CREATED, summary="Create and start a new harness run")
 async def create_run(payload: RunCreate) -> RunState:
-    # Validate metric compatibility with dataset
-    if payload.dataset_id in DATASET_STORE:
-        profile, _ = DATASET_STORE[payload.dataset_id]
-        if payload.metric == "pr_auc" and profile.task == "multiclass":
-            raise unprocessable(
-                code="metric_incompatible",
-                message="pr_auc is binary-only and cannot be computed on multiclass datasets",
-                field_name="metric",
-            )
-    elif payload.metric == "pr_auc" and "multiclass" in payload.dataset_id:
+    # Validate the metric against the *actual* task of the actual dataset.
+    #
+    # The previous check asked whether the string "multiclass" appeared inside the
+    # dataset id, which is never true, so `pr_auc` on a multiclass dataset was
+    # accepted and then failed its first trial — burning a budget step to report
+    # something the request could have been rejected for.
+    profile = _require_dataset(payload.dataset_id)
+
+    if payload.metric not in catalog.available_metrics(profile.task):
+        usable = ", ".join(catalog.available_metrics(profile.task))
         raise unprocessable(
             code="metric_incompatible",
-            message="pr_auc is binary-only and cannot be computed on multiclass datasets",
+            message=(
+                f"{payload.metric} cannot be computed on this dataset: it is "
+                f"{profile.task} with {profile.n_classes} classes. Use one of: {usable}."
+            ),
             field_name="metric",
+        )
+
+    unknown = [m for m in payload.model_ids if m not in catalog.MODEL_IDS]
+    if unknown:
+        raise unprocessable(
+            code="unknown_model",
+            message=f"Unknown model(s): {', '.join(unknown)}. "
+                    f"Available: {', '.join(catalog.MODEL_IDS)}.",
+            field_name="model_ids",
         )
 
     harness_run = harness_service.create_run(
@@ -157,9 +222,17 @@ async def get_why_record(run_id: str, trial_id: Optional[str] = Query(None)) -> 
     if not harness_run:
         raise not_found("run", run_id)
 
-    target_trial_id = trial_id or harness_run.state.best_trial_id or "trial_001"
-    why_record = harness_service.decision_maker.explain(target_trial_id)
-    return why_record
+    target = trial_id or harness_run.state.best_trial_id
+    if not target:
+        # The previous fallback invented "trial_001". A fabricated id resolves to
+        # no decision, so the user got an empty explanation for a trial that never
+        # existed. Better to say the run has produced nothing to explain.
+        raise not_found("trial for run", run_id)
+
+    try:
+        return harness_service.decision_maker.explain(run_id, target)
+    except KeyError as exc:
+        raise not_found("decision for trial", target) from exc
 
 
 @router.get("/{run_id}/logs", response_model=LogsResponse, summary="Fetch sequential run logs")

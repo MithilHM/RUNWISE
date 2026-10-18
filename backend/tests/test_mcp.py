@@ -11,6 +11,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.runs import harness_service
 from app.main import app
 from app.mcp.server import mcp_server, MCP_TOOLS
 
@@ -60,12 +61,36 @@ def test_mcp_dispatch_tools_call_list_models():
 
 
 def test_mcp_dispatch_tools_call_explain_trial():
-    """Test calling explain_trial via MCP."""
+    """Test calling explain_trial via MCP against a real trial."""
+    # The tool requires both ids, and "trial_001" was never a real trial. Build
+    # one through the store so the assertion is about a decision that exists.
+    from app.models.contracts import Decision, TrialOutcome
+    import time as _time
+
+    store = harness_service.graph_store
+    run_id = "run_mcp_probe"
+    store.write_run(__import__("app.models.contracts", fromlist=["RunState"]).RunState(
+        run_id=run_id, dataset_id="ds_mcp", mode="autonomous", status="COMPLETED",
+        step=0, budget=1, metric_name="accuracy", model_ids=["xgboost"],
+    ))
+    trial = TrialOutcome(
+        trial_id="trial_mcp_probe", run_id=run_id, step=0, model_id="xgboost",
+        params={"n_estimators": 100}, status="SUCCESS", metric_name="accuracy",
+        metric_value=0.8,
+    )
+    store.write_trial(trial, Decision(
+        decision_id="dec_mcp_probe", run_id=run_id, step=0,
+        trial_id=trial.trial_id, actor="laya", strategy="probe",
+        why="probe decision", hypothesis="h", confidence=0.5,
+        citations=["xgboost"], created_at=_time.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+    ))
+
     res = mcp_server.dispatch({
         "jsonrpc": "2.0",
         "id": 3,
         "method": "tools/call",
-        "params": {"name": "explain_trial", "arguments": {"trial_id": "trial_001"}},
+        "params": {"name": "explain_trial",
+                   "arguments": {"run_id": run_id, "trial_id": "trial_mcp_probe"}},
     })
     assert res["id"] == 3
     content = json.loads(res["result"]["content"][0]["text"])

@@ -18,9 +18,9 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.api.catalog import SUPPORTED_MODELS
-from app.api.datasets import DATASET_STORE
 from app.api.runs import harness_service
+from app.services import catalog
+from app.services.ingestion import get_ingestor
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +72,13 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "run_id": {"type": "string", "description": "Identifier of the run the trial belongs to"},
                 "trial_id": {"type": "string", "description": "Identifier of the trial to explain"},
             },
-            "required": ["trial_id"],
+            # `run_id` is required rather than optional. A trial id alone is
+            # ambiguous across runs, and resolving one without it could return a
+            # decision belonging to a different run.
+            "required": ["run_id", "trial_id"],
         },
     },
     {
@@ -157,10 +161,10 @@ class MCPServer:
 
     def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
         if tool_name == "list_models":
-            return [m.model_dump() for m in SUPPORTED_MODELS]
+            return [m.model_dump() for m in catalog.list_models()]
 
         if tool_name == "list_datasets":
-            return [p.model_dump() for p, _ in DATASET_STORE.values()]
+            return [p.model_dump() for p in get_ingestor().list_datasets()]
 
         if tool_name == "list_trials":
             run_id = args.get("run_id")
@@ -209,8 +213,9 @@ class MCPServer:
             return {"nodes": nodes, "edges": edges, "hops": hops}
 
         if tool_name == "explain_trial":
+            run_id = args.get("run_id", "")
             trial_id = args.get("trial_id", "")
-            why_record = harness_service.decision_maker.explain(trial_id)
+            why_record = harness_service.decision_maker.explain(run_id, trial_id)
             return why_record.model_dump()
 
         if tool_name == "best_trials":

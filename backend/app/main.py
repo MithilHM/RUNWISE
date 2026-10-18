@@ -1,74 +1,88 @@
-"""
-RUNWISE FastAPI Application Entrypoint.
-Conforms to PRD Section 7, Section 9, and Section 19.
-Integrates the graph-layer routers (Graph/Experiments/Imports/Corrections)
-and the reasoning-layer routers (Recommendations/Copilot).
+"""RUNWISE FastAPI application.
+
+An autonomous ML harness: upload one static CSV, choose from three models, watch
+the dependency graph fill in, and ask why any of it happened.
+
+The startup sequence matters more than it looks. `write_models` must run before
+the first `propose`, because Laya grounds every decision in `:Model` and `:Param`
+nodes and a highlight pointing at a node that was never created shows the user
+nothing.
 """
 
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api import (
+    catalog_router,
+    datasets_router,
+    graph_router,
+    mcp_router,
+    runs_router,
+)
 from app.core.config import settings
 from app.graph.client import graph_client
-from app.graph.schema import initialize_schema
-from app.graph.repository import GraphRepository
-from app.api.projects import router as projects_router
-from app.api.imports import router as imports_router
-from app.api.experiments import router as experiments_router
-from app.api.corrections import router as corrections_router
-from app.api.recommendations import router as recommendations_router
-from app.api.copilot import router as copilot_router
-from app.api.runtime import router as runtime_router
-from app.api.mcp import router as mcp_router
-from app.api.catalog import router as catalog_router
-from app.api.datasets import router as datasets_router
-from app.api.runs import router as runs_router
-from app.api.graph import router as graph_router
+from app.graph.repository import get_graph_store
+from app.services.catalog import list_models
 
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 logger = logging.getLogger("runwise")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle manager: connects to FalkorDB and ensures schema indices exist."""
-    logger.info("Initializing RUNWISE backend application...")
+    """Connects to FalkorDB, ensures the schema, and writes the model catalog.
+
+    FalkorDB is required, not optional. The graph *is* the product, so a missing
+    database is a loud degraded start rather than a silent fallback to a local
+    store that would make the tool claim something untrue.
+    """
+    logger.info("Starting %s...", settings.APP_NAME)
     try:
         health = graph_client.check_health()
         if health.get("status") == "healthy":
-            logger.info(f"FalkorDB is online at {settings.FALKORDB_HOST}:{settings.FALKORDB_PORT}. Initializing schema...")
-            graph = graph_client.get_graph()
-            res = initialize_schema(graph)
-            logger.info(f"Graph schema initialized: {res}")
+            store = get_graph_store()
+            store.ensure_schema()
+            params = store.write_models(list_models())
+            logger.info(
+                "FalkorDB online at %s:%s. Schema ready, %d parameter node(s) written.",
+                settings.FALKORDB_HOST, settings.FALKORDB_PORT, params,
+            )
         else:
-            logger.warning(f"FalkorDB health check indicates: {health}. Application starting in decoupled mode.")
-    except Exception as e:
-        logger.warning(f"Failed to initialize FalkorDB on startup: {e}. Graph operations will reconnect on demand.")
+            logger.warning(
+                "FalkorDB health check reports %s. The app will start but graph "
+                "operations will fail until it is reachable.",
+                health.get("status"),
+            )
+    except Exception as exc:  # noqa: BLE001 - startup must report, not crash
+        logger.error(
+            "Could not initialise FalkorDB: %s. Endpoints needing the graph will "
+            "return 503 until it is reachable.", exc,
+        )
 
     yield
 
-    logger.info("Shutting down RUNWISE backend application...")
+    logger.info("Shutting down %s...", settings.APP_NAME)
     graph_client.close()
 
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="RUNWISE — AI Research Experiment Copilot Backend API",
-    version="1.0.0",
-    lifespan=lifespan
+    description=(
+        "An autonomous ML harness. Upload a CSV, pick from RandomForest, XGBoost "
+        "or LightGBM, and watch every hyperparameter value, trial, decision and "
+        "log line land in the graph — then ask why."
+    ),
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
-# Wire the graph service into application state for the recommendation / copilot dependencies
-app.state.graph_service = GraphRepository()
-
-# CORS for the frontend dev server. Origins are explicit: ``allow_origins=["*"]``
-# combined with credentials is rejected by browsers, and an open origin on a
-# service with no authentication is a hole rather than a convenience.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -79,7 +93,7 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# One error envelope for every failure (PRD 9: structured errors everywhere)
+# One error envelope for every failure
 # ---------------------------------------------------------------------------
 
 
@@ -108,11 +122,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     }
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "detail": _as_detail_list(
-                exc.detail, code_by_status.get(exc.status_code, "http_error")
-            )
-        },
+        content={"detail": _as_detail_list(exc.detail, code_by_status.get(exc.status_code, "http_error"))},
         headers=getattr(exc, "headers", None),
     )
 
@@ -135,11 +145,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """A database failure is a 503 with a code, not an opaque 500 with a traceback.
 
-    The frontend can then show "the graph is unavailable, retry" instead of a parse
-    error, and the message never leaks a driver stack trace to a client.
+    The frontend can then say "the graph is unavailable, retry" instead of
+    rendering a parse error, and the message never leaks a driver stack trace.
     """
     logger.exception("Unhandled error serving %s %s", request.method, request.url.path)
-    if exc.__class__.__module__.startswith("falkordb"):
+    if exc.__class__.__module__.startswith(("falkordb", "redis")):
         code, http_status, message = (
             "graph_unavailable",
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -156,28 +166,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.get("/health", tags=["system"])
 def health_check():
-    """Health check endpoint providing FalkorDB status."""
+    """Liveness plus the FalkorDB status the console shows in its header."""
     db_health = graph_client.check_health()
     return {
         "status": "healthy" if db_health.get("status") == "healthy" else "degraded",
         "app": settings.APP_NAME,
-        "database": db_health
+        "database": db_health,
     }
 
 
-# Router Registration Points (PRD Section 9 & 19)
-app.include_router(projects_router, prefix=settings.API_V1_STR)
-app.include_router(imports_router, prefix=settings.API_V1_STR)
-app.include_router(experiments_router, prefix=settings.API_V1_STR)
-app.include_router(corrections_router, prefix=settings.API_V1_STR)
-app.include_router(recommendations_router, prefix=settings.API_V1_STR)
-app.include_router(copilot_router, prefix=settings.API_V1_STR)
-app.include_router(runtime_router, prefix="/api")
-app.include_router(runtime_router, prefix=settings.API_V1_STR)
-app.include_router(mcp_router, prefix="/api")
-app.include_router(mcp_router, prefix=settings.API_V1_STR)
-app.include_router(catalog_router, prefix=settings.API_V1_STR)
 app.include_router(datasets_router, prefix=settings.API_V1_STR)
+app.include_router(catalog_router, prefix=settings.API_V1_STR)
 app.include_router(runs_router, prefix=settings.API_V1_STR)
 app.include_router(graph_router, prefix=settings.API_V1_STR)
-
+app.include_router(mcp_router, prefix=settings.API_V1_STR)

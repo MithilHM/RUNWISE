@@ -1,424 +1,355 @@
-"""In-memory GraphService for the engine test suites (PRD 18).
+"""In-memory `GraphStore` for development and tests.
 
-The graph layer owns the FalkorDB implementation under ``backend/app/graph/**``.
-These tests must not need a running database to prove the logic, so this fake
-implements the same :class:`~app.ports.graph.GraphService` protocol in memory.
+Purpose: let the whole harness run with no FalkorDB container, so the console,
+the tests and the demo work before — or instead of — a live database.
 
-It is deliberately strict about two things the real implementation must also be
-strict about:
+**It is selected by `RUNWISE_FAKE=1` and never by default.** The real store is
+the product; this is a substitute, and a substitute that silently took over in
+production would make the tool claim a graph it does not have.
 
-  * ``list_experiments`` and friends scope by project inside the lookup, not by
-    filtering a global list afterwards.
-  * A recommendation decision mutates stored state, so a test can prove that an
-    approval was actually recorded.
+It implements the same `GraphStore` protocol as `FalkorDBGraphStore`, including
+the deduplication that F3 depends on: one `Setting` node per
+(model, parameter, value), regardless of how many trials used it.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from app.models.contracts import (
-    CorrectionImpact,
-    CorrectionRecord,
-    DatasetSummary,
-    DatasetVersionSummary,
-    Decision,
-    ExperimentRecord,
-    Recommendation,
-    RecommendationDecision,
-    RecommendationStatus,
-    ReviewItem,
-    ReviewItemStatus,
-)
-from app.ports.graph import GraphService
-
-
-class FakeGraphService(GraphService):
-    """Test double for the graph port."""
-
-    def __init__(
-        self,
-        *,
-        experiments: list[ExperimentRecord] | None = None,
-        datasets: list[DatasetSummary] | None = None,
-        dataset_versions: list[DatasetVersionSummary] | None = None,
-        corrections: list[CorrectionRecord] | None = None,
-    ) -> None:
-        self.experiments: dict[str, ExperimentRecord] = {
-            e.id: e for e in (experiments or [])
-        }
-        self.datasets: dict[str, DatasetSummary] = {d.id: d for d in (datasets or [])}
-        self.dataset_versions: dict[str, DatasetVersionSummary] = {
-            v.id: v for v in (dataset_versions or [])
-        }
-        self.corrections: dict[str, CorrectionRecord] = {
-            c.id: c for c in (corrections or [])
-        }
-        self.review_items: dict[str, ReviewItem] = {}
-        self.recommendations: dict[str, Recommendation] = {}
-        self.decisions: list[RecommendationDecision] = []
-        self.lineage: dict[str, list[dict[str, Any]]] = {}
-
-    # -- experiments -------------------------------------------------------
-
-    def list_experiments(
-        self,
-        project_id: str,
-        *,
-        model_family: str | None = None,
-        dataset_id: str | None = None,
-        dataset_version_id: str | None = None,
-        metric: str | None = None,
-        status: str | None = None,
-        config_field: str | None = None,
-        config_value: Any | None = None,
-        limit: int | None = None,
-    ) -> list[ExperimentRecord]:
-        selected = [e for e in self.experiments.values() if e.project_id == project_id]
-
-        if model_family:
-            selected = [
-                e for e in selected if (e.model_family or "").lower() == model_family.lower()
-            ]
-        if dataset_id:
-            selected = [e for e in selected if e.dataset_id == dataset_id]
-        if dataset_version_id:
-            selected = [e for e in selected if e.dataset_version_id == dataset_version_id]
-        if metric:
-            selected = [e for e in selected if e.metric(metric) is not None]
-        if status:
-            selected = [e for e in selected if str(e.status) == status or e.status == status]
-        if config_field:
-            selected = [
-                e
-                for e in selected
-                if config_field in {**(e.configuration or {}), **(e.hyperparameters or {})}
-            ]
-            if config_value is not None:
-                selected = [
-                    e
-                    for e in selected
-                    if (e.configuration or {}).get(config_field, (e.hyperparameters or {}).get(config_field))
-                    == config_value
-                ]
-
-        selected.sort(key=lambda e: e.id)
-        return selected[:limit] if limit else selected
-
-    def get_experiment(self, experiment_id: str) -> ExperimentRecord | None:
-        return self.experiments.get(experiment_id)
-
-    def find_comparable_candidates(
-        self,
-        *,
-        project_id: str,
-        model_family: str | None = None,
-        dataset_id: str | None = None,
-        dataset_version_id: str | None = None,
-        evaluation_split: str | None = None,
-        metric: str | None = None,
-        limit: int | None = None,
-    ) -> list[ExperimentRecord]:
-        pool = self.list_experiments(
-            project_id, model_family=model_family, dataset_id=dataset_id
-        )
-        if dataset_version_id:
-            pool = [e for e in pool if e.dataset_version_id == dataset_version_id]
-        if metric:
-            pool = [e for e in pool if e.metric(metric) is not None]
-        if evaluation_split:
-            pool = [
-                e
-                for e in pool
-                if any(m.evaluation_split == evaluation_split for m in e.metrics)
-            ]
-        pool.sort(key=lambda e: e.id)
-        return pool[:limit] if limit else pool
-
-    def get_experiment_lineage(self, experiment_id: str) -> list[dict[str, Any]]:
-        return self.lineage.get(experiment_id, [])
-
-    # -- datasets ----------------------------------------------------------
-
-    def list_datasets(self, project_id: str) -> list[DatasetSummary]:
-        return list(self.datasets.values())
-
-    def list_dataset_versions(self, project_id: str) -> list[DatasetVersionSummary]:
-        return list(self.dataset_versions.values())
-
-    # -- corrections -------------------------------------------------------
-
-    def list_corrections(self, project_id: str) -> list[CorrectionRecord]:
-        return [c for c in self.corrections.values() if c.project_id == project_id]
-
-    def get_correction_impact(self, correction_id: str) -> CorrectionImpact | None:
-        correction = self.corrections.get(correction_id)
-        if correction is None:
-            return None
-
-        affected: list[str] = []
-        for experiment in self.experiments.values():
-            if experiment.project_id != correction.project_id:
-                continue
-            if experiment.id == correction.source_id or (
-                experiment.dataset_version_id == correction.source_id
-            ):
-                affected.append(experiment.id)
-
-        # A run's validity also rests on what it was derived from: everything
-        # descending from an affected run is affected transitively, even when
-        # its own dataset version is clean. Mirrors the repository's PARENT_OF
-        # traversal (the repository bounds the hop depth; the histories this
-        # fake serves stay far below that bound, so the two agree in practice).
-        children: dict[str, list[str]] = {}
-        for experiment in self.experiments.values():
-            if experiment.project_id != correction.project_id:
-                continue
-            if experiment.parent_experiment_id:
-                children.setdefault(experiment.parent_experiment_id, []).append(
-                    experiment.id
-                )
-
-        descendants: list[str] = []
-        touched = set(affected)
-        frontier = list(touched)
-        while frontier:
-            current = frontier.pop()
-            for child_id in children.get(current, []):
-                if child_id not in touched:
-                    touched.add(child_id)
-                    descendants.append(child_id)
-                    frontier.append(child_id)
-        descendants.sort()
-
-        # Everything that used the same dataset version but was not listed above
-        # is unaffected-by-direct-effect yet still relevant context.
-        return CorrectionImpact(
-            correction_id=correction.id,
-            source_id=correction.source_id,
-            summary=correction.description,
-            directly_affected_experiment_ids=sorted(affected),
-            indirectly_affected_experiment_ids=descendants,
-            unaffected_experiment_ids=sorted(
-                e.id
-                for e in self.experiments.values()
-                if e.project_id == correction.project_id and e.id not in touched
-            ),
-        )
-
-    def list_review_items(
-        self, project_id: str, *, status: ReviewItemStatus | None = None
-    ) -> list[ReviewItem]:
-        return [
-            item
-            for item in self.review_items.values()
-            if item.project_id == project_id
-            and (status is None or item.status is status)
-        ]
-
-    # -- recommendations ---------------------------------------------------
-
-    def save_recommendation(self, recommendation: Recommendation) -> None:
-        self.recommendations[recommendation.id] = recommendation
-
-    def get_recommendation(self, recommendation_id: str) -> Recommendation | None:
-        return self.recommendations.get(recommendation_id)
-
-    def list_recommendations(self, project_id: str) -> list[Recommendation]:
-        return [
-            r for r in self.recommendations.values() if r.project_id == project_id
-        ]
-
-    def record_recommendation_decision(
-        self, decision: RecommendationDecision
-    ) -> Recommendation:
-        recommendation = self.recommendations.get(decision.recommendation_id)
-        if recommendation is None:
-            raise KeyError(decision.recommendation_id)
-
-        self.decisions.append(decision)
-        status_map = {
-            Decision.APPROVED: RecommendationStatus.APPROVED,
-            Decision.REJECTED: RecommendationStatus.REJECTED,
-            Decision.EDITED: RecommendationStatus.EDITED,
-        }
-        updates: dict[str, Any] = {"status": status_map[decision.decision]}
-        if decision.edited_configuration is not None:
-            updates["configuration"] = decision.edited_configuration
-
-        updated = recommendation.model_copy(update=updates)
-        self.recommendations[decision.recommendation_id] = updated
-        return updated
-
-
-# Structural check: a silent signature drift in the port should fail here.
-assert isinstance(FakeGraphService(), GraphService)
-
-
-# ---------------------------------------------------------------------------
-# FakeGraphStore for Member B (MEMBER_B.md Section 3.3)
-# ---------------------------------------------------------------------------
-
-from app.models.contracts import (  # noqa: E402
     DatasetProfile,
-    Decision as HarnessDecision,
+    Decision,
     GraphEdge,
     GraphNode,
     GraphSnapshot,
     LogEntry,
     RunState,
     TrialOutcome,
+    WhyRecord,
+    EvidenceItem,
 )
-from app.ports import GraphStore  # noqa: E402
+from app.graph.repository import CITABLE_LABELS, param_id, setting_id
+
+__all__ = ["FakeGraphStore", "reset_fake_graph"]
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, default=str)
 
 
 class FakeGraphStore:
-    """In-memory GraphStore for the autonomous ML harness.
-
-    Enforces no Cypher, maintains nodes and edges in dicts, supports
-    read_logs(after_seq), write_trial with CITES edges from decision.citations.
-    """
+    """A `GraphStore` held entirely in memory."""
 
     def __init__(self) -> None:
-        self.datasets: dict[str, DatasetProfile] = {}
-        self.runs: dict[str, RunState] = {}
-        self.trials: dict[str, TrialOutcome] = {}
-        self.decisions: dict[str, HarnessDecision] = {}
-        self.logs: list[LogEntry] = []
-        self.nodes: dict[str, GraphNode] = {}
-        self.edges: list[GraphEdge] = []
+        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self.edges: set[tuple[str, str, str]] = set()
+        self.runs: Dict[str, RunState] = {}
+        self._log_seq: Dict[str, int] = {}
+
+    # ------------------------------------------------------------------
+    # Writes
+    # ------------------------------------------------------------------
+
+    def ensure_schema(self) -> None:
+        return None
+
+    def _put(self, node_id: str, label: str, props: Dict[str, Any]) -> str:
+        node = self.nodes.setdefault(node_id, {"id": node_id, "type": label, "props": {}})
+        node["type"] = label
+        node["props"].update(props)
+        return node_id
+
+    def _link(self, source: str, rel: str, target: str) -> None:
+        if source in self.nodes and target in self.nodes:
+            self.edges.add((source, rel, target))
 
     def write_dataset(self, profile: DatasetProfile) -> None:
-        self.datasets[profile.id] = profile
-        self.nodes[profile.id] = GraphNode(
-            id=profile.id,
-            label=profile.name,
-            type="Dataset",
-            props={
-                "n_rows": profile.n_rows,
-                "n_cols": profile.n_cols,
-                "task": profile.task,
-            },
-        )
+        self._put(profile.id, "Dataset", {
+            "name": profile.name, "n_rows": profile.n_rows, "n_cols": profile.n_cols,
+            "task": profile.task, "n_classes": profile.n_classes,
+            "class_balance": _json(profile.class_balance), "split_hash": profile.split_hash,
+            "target": profile.target, "target_inferred": profile.target_inferred,
+            "dropped_columns": _json([d.model_dump() for d in profile.dropped_columns]),
+            "created_at": profile.created_at,
+        })
+        for column in profile.columns:
+            cid = f"column_{profile.id}_{column.name}"
+            self._put(cid, "Column", column.model_dump())
+            self._link(profile.id, "HAS_COLUMN", cid)
+
+    def write_models(self, models: List[Any]) -> int:
+        count = 0
+        for model in models:
+            self._put(model.id, "Model", {
+                "name": model.name, "library": model.library, "description": model.description,
+            })
+            for param in model.params:
+                pid = param_id(model.id, param.name)
+                self._put(pid, "Param", {
+                    "model_id": model.id, "name": param.name, "kind": param.kind,
+                    "low": param.low, "high": param.high, "step": param.step,
+                    "log_scale": param.log_scale, "choices": _json(param.choices),
+                    "default_value": _json(param.default),
+                })
+                self._link(model.id, "HAS_PARAM", pid)
+                count += 1
+        return count
 
     def write_run(self, run: RunState) -> None:
-        self.runs[run.run_id] = run
-        self.nodes[run.run_id] = GraphNode(
-            id=run.run_id,
-            label=f"Run {run.run_id[:8]}",
-            type="Run",
-            props={
-                "mode": run.mode,
-                "status": run.status,
-                "metric": run.metric_name,
-                "budget": run.budget,
-            },
-        )
-        if run.dataset_id in self.nodes:
-            self.edges.append(
-                GraphEdge(
-                    source=run.run_id,
-                    target=run.dataset_id,
-                    type="EVALUATED_ON",
-                    props={},
-                )
-            )
+        self.runs[run.run_id] = run.model_copy(deep=True)
+        self._put(run.run_id, "Run", run.model_dump())
+        self._link(run.run_id, "ON_DATASET", run.dataset_id)
+        for model_id in run.model_ids:
+            self._link(run.run_id, "TARGETS_MODEL", model_id)
 
-    def write_trial(self, trial: TrialOutcome, decision: HarnessDecision) -> None:
-        self.trials[trial.trial_id] = trial
-        self.decisions[decision.decision_id] = decision
+    def write_trial(self, trial: TrialOutcome, decision) -> Dict[str, int]:
+        # Mirrors the real store: a failed trial wrote no settings, because a
+        # configuration the harness rejected was never tried.
+        if trial.status == "SUCCESS":
+            for name, value in trial.params.items():
+                sid = setting_id(trial.model_id, name, value)
+                self._put(sid, "Setting", {
+                    "model_id": trial.model_id, "param_id": param_id(trial.model_id, name),
+                    "name": name, "value": _json(value),
+                    "value_num": value if isinstance(value, (int, float)) and not isinstance(value, bool) else None,
+                })
+                self._link(trial.model_id, "OF_MODEL", sid)
+                self._link(sid, "FOR_PARAM", param_id(trial.model_id, name))
 
-        # Trial node
-        self.nodes[trial.trial_id] = GraphNode(
-            id=trial.trial_id,
-            label=f"{trial.model_id} (s{trial.step})",
-            type="Trial",
-            props={
-                "step": trial.step,
-                "model_id": trial.model_id,
-                "status": trial.status,
-                "metric_value": trial.metric_value,
-                "params": trial.params,
-            },
-        )
-        # Decision node
-        self.nodes[decision.decision_id] = GraphNode(
-            id=decision.decision_id,
-            label=f"Decision ({decision.actor})",
-            type="Decision",
-            props={
-                "actor": decision.actor,
-                "strategy": decision.strategy,
-                "why": decision.why,
-                "confidence": decision.confidence,
-            },
-        )
-        # Connect Decision -> Trial
-        self.edges.append(
-            GraphEdge(
-                source=decision.decision_id,
-                target=trial.trial_id,
-                type="PRODUCED",
-                props={},
-            )
-        )
-        # Connect Trial -> Run
-        if trial.run_id in self.nodes:
-            self.edges.append(
-                GraphEdge(
-                    source=trial.trial_id,
-                    target=trial.run_id,
-                    type="PART_OF",
-                    props={},
-                )
-            )
-        # Create CITES edges from decision.citations
-        for cited_id in decision.citations:
-            self.edges.append(
-                GraphEdge(
-                    source=decision.decision_id,
-                    target=cited_id,
-                    type="CITES",
-                    props={},
-                )
-            )
+        self._put(trial.trial_id, "Trial", {
+            "run_id": trial.run_id, "step": trial.step, "model_id": trial.model_id,
+            "status": trial.status, "metric_name": trial.metric_name,
+            "metric_value": trial.metric_value, "metrics": _json(trial.metrics),
+            "params": _json(trial.params), "failure_reason": trial.failure_reason or "",
+            "duration_sec": trial.duration_sec, "n_features": trial.n_features,
+            "seed": trial.seed, "created_at": trial.created_at or _now(),
+        })
+        self._link(trial.run_id, "HAS_TRIAL", trial.trial_id)
+        self._link(trial.trial_id, "USES_MODEL", trial.model_id)
+        for name, value in trial.params.items():
+            self._link(trial.trial_id, "USES_SETTING", setting_id(trial.model_id, name, value))
+
+        did = decision.decision_id
+        self._put(did, "Decision", decision.model_dump())
+        agent = f"agent_{decision.actor}"
+        self._put(agent, "Agent", {"name": decision.actor})
+        self._link(agent, "DECIDED", did)
+        self._link(did, "CHOSE", trial.trial_id or decision.trial_id)
+        self._link(did, "DURING", decision.run_id)
+        for citation in decision.citations:
+            self._link(did, "CITES", citation)
+        return {"settings_written": len(trial.params), "nodes_added": 2, "edges_added": 1}
 
     def write_log(self, entry: LogEntry) -> None:
-        self.logs.append(entry)
+        lid = f"log_{entry.run_id}_{entry.seq:09d}"
+        self._put(lid, "LogEntry", entry.model_dump())
+        self._link(lid, "IN_RUN", entry.run_id)
 
-    def read_graph(self, run_id: str | None = None, dataset_id: str | None = None) -> GraphSnapshot:
-        if not run_id and not dataset_id:
-            return GraphSnapshot(
-                nodes=list(self.nodes.values())[:500],
-                edges=self.edges[:1000],
-            )
-        matched_node_ids = set()
-        if run_id and run_id in self.nodes:
-            matched_node_ids.add(run_id)
-        if dataset_id and dataset_id in self.nodes:
-            matched_node_ids.add(dataset_id)
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
 
-        for t in self.trials.values():
-            if run_id and t.run_id == run_id:
-                matched_node_ids.add(t.trial_id)
-        for d in self.decisions.values():
-            if run_id and d.run_id == run_id:
-                matched_node_ids.add(d.decision_id)
-                for c in d.citations:
-                    matched_node_ids.add(c)
+    def read_graph(
+        self, run_id: Optional[str] = None, dataset_id: Optional[str] = None
+    ) -> GraphSnapshot:
+        wanted: set[str] = set()
+        for source, rel, target in self.edges:
+            if source in wanted or target in wanted:
+                wanted.add(source)
+                wanted.add(target)
+        # Seed from the requested scope, then close over connectivity.
+        if run_id:
+            wanted.add(run_id)
+            wanted.add(dataset_id or "")
+        elif dataset_id:
+            wanted.add(dataset_id)
 
-        relevant_nodes = [n for n in self.nodes.values() if n.id in matched_node_ids]
-        relevant_edges = [
-            e for e in self.edges if e.source in matched_node_ids and e.target in matched_node_ids
+        changed = True
+        while changed:
+            changed = False
+            for source, _rel, target in self.edges:
+                if source in wanted or target in wanted:
+                    before = len(wanted)
+                    wanted.add(source)
+                    wanted.add(target)
+                    changed = changed or len(wanted) != before
+
+        nodes = [
+            GraphNode(id=nid, label=str(n["props"].get("name") or n["props"].get("id", nid)),
+                      type=n["type"], props=dict(n["props"]))
+            for nid, n in self.nodes.items() if nid in wanted
         ]
-        return GraphSnapshot(nodes=relevant_nodes, edges=relevant_edges)
-
-    def read_logs(self, run_id: str, after_seq: int = 0) -> list[LogEntry]:
-        return [
-            log
-            for log in self.logs
-            if log.run_id == run_id and log.seq > after_seq
+        edges = [
+            GraphEdge(source=s, target=t, type=r, props={})
+            for s, r, t in self.edges if s in wanted and t in wanted
         ]
+        return GraphSnapshot(nodes=nodes, edges=edges)
+
+    def read_logs(self, run_id: str, after_seq: int = 0) -> List[LogEntry]:
+        entries = [
+            LogEntry(**node["props"])
+            for node in self.nodes.values()
+            if node["type"] == "LogEntry" and node["props"].get("run_id") == run_id
+            and node["props"].get("seq", 0) > after_seq
+        ]
+        entries.sort(key=lambda e: e.seq)
+        return entries
+
+    def explain_trial(self, run_id: str, trial_id: str) -> WhyRecord:
+        for node in self.nodes.values():
+            if node["type"] != "Decision":
+                continue
+            props = node["props"]
+            if props.get("trial_id") != trial_id or (run_id and props.get("run_id") != run_id):
+                continue
+            citations = props.get("citations") or []
+            if isinstance(citations, str):
+                citations = json.loads(citations)
+            evidence = []
+            for citation in citations:
+                target = self.nodes.get(citation)
+                if not target or target["type"] not in CITABLE_LABELS:
+                    continue
+                evidence.append(EvidenceItem(
+                    kind=target["type"], id=citation,
+                    label=str(target["props"].get("name") or citation),
+                    detail=str(target["props"].get("value") or ""),
+                ))
+            trial = self._trial_from(trial_id)
+            return WhyRecord(decision=props, trial=trial, config=dict(trial.params),
+                             evidence=evidence, highlight=[e.id for e in evidence])
+        raise KeyError(f"no decision found for trial '{trial_id}'")
+
+    def _trial_from(self, trial_id: str) -> TrialOutcome:
+        props = self.nodes[trial_id]["props"]
+        metrics = props.get("metrics") or {}
+        if isinstance(metrics, str):
+            metrics = json.loads(metrics)
+        params = props.get("params") or {}
+        if isinstance(params, str):
+            params = json.loads(params)
+        # The node's own id *is* the trial id; `write_trial` never stores a
+        # separate `trial_id` property, so it has to be supplied from the key.
+        return TrialOutcome(
+            **{**props, "trial_id": trial_id, "metrics": metrics, "params": params,
+               "failure_reason": props.get("failure_reason") or None},
+        )
+
+    def list_trials(self, run_id=None, model_id=None, status=None, limit=100) -> List[Dict[str, Any]]:
+        out = []
+        for node in self.nodes.values():
+            if node["type"] != "Trial":
+                continue
+            p = node["props"]
+            if run_id and p.get("run_id") != run_id:
+                continue
+            if model_id and p.get("model_id") != model_id:
+                continue
+            if status and p.get("status") != status:
+                continue
+            out.append({"id": node["id"], "run_id": p.get("run_id"),
+                        "model_id": p.get("model_id"), "status": p.get("status"),
+                        "metric_name": p.get("metric_name"),
+                        "metric_value": p.get("metric_value"), "step": p.get("step")})
+        out.sort(key=lambda t: t.get("step") or 0)
+        return out[:limit]
+
+    @property
+    def trials(self) -> Dict[str, TrialOutcome]:
+        """Every trial recorded, keyed by trial id.
+
+        A dict rather than a list so callers can both count it and look a trial
+        up by id without a comprehension.
+        """
+        return {
+            node["id"]: self._trial_from(node["id"])
+            for node in self.nodes.values()
+            if node["type"] == "Trial"
+        }
+
+    @property
+    def decisions(self) -> Dict[str, Decision]:
+        """Every decision recorded, as contracts, keyed by decision id."""
+        out: Dict[str, Decision] = {}
+        for node in self.nodes.values():
+            if node["type"] != "Decision":
+                continue
+            props = dict(node["props"])
+            citations = props.get("citations") or []
+            if isinstance(citations, str):
+                citations = json.loads(citations)
+            props["citations"] = citations
+            props["decision_id"] = node["id"]
+            out[node["id"]] = Decision(**props)
+        return out
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        return [{"id": n["id"], "name": n["props"].get("name"),
+                 "library": n["props"].get("library")}
+                for n in self.nodes.values() if n["type"] == "Model"]
+
+    def list_datasets(self, limit: int = 20) -> List[Dict[str, Any]]:
+        out = [
+            {"id": n["id"], "name": n["props"].get("name"), "n_rows": n["props"].get("n_rows"),
+             "task": n["props"].get("task"), "target": n["props"].get("target"),
+             "created_at": n["props"].get("created_at")}
+            for n in self.nodes.values() if n["type"] == "Dataset"
+        ]
+        return out[:limit]
+
+    def best_trials(self, run_id: str) -> List[Dict[str, Any]]:
+        best: Dict[str, Dict[str, Any]] = {}
+        for trial in self.list_trials(run_id=run_id, status="SUCCESS"):
+            value = trial.get("metric_value")
+            if value is None:
+                continue
+            current = best.get(trial["model_id"])
+            if current is None or value > current["metric_value"]:
+                best[trial["model_id"]] = {
+                    "model_id": trial["model_id"], "trial_id": trial["id"],
+                    "metric_value": value, "metric_name": trial["metric_name"], "params": {},
+                }
+        return [best[k] for k in sorted(best)]
+
+    def graph_neighbourhood(self, node_id: str, depth: int = 1) -> Dict[str, Any]:
+        frontier = {node_id}
+        seen = {node_id}
+        edges: List[Dict[str, str]] = []
+        for _ in range(max(1, min(depth, 3))):
+            nxt = set()
+            for source, rel, target in self.edges:
+                if source in frontier or target in frontier:
+                    if (source, rel, target) not in {(e["source"], e["type"], e["target"]) for e in edges}:
+                        edges.append({"source": source, "type": rel, "target": target})
+                    nxt.update({source, target})
+            nxt -= seen
+            seen |= nxt
+            frontier = nxt
+        return {
+            "root": node_id,
+            "nodes": [{"id": nid, "type": self.nodes[nid]["type"],
+                       "label": str(self.nodes[nid]["props"].get("name") or nid)}
+                      for nid in sorted(seen) if nid in self.nodes],
+            "edges": edges,
+        }
 
 
-assert isinstance(FakeGraphStore(), GraphStore)
+def reset_fake_graph() -> None:
+    """Clears the shared instance. Used between tests."""
+    get_fake_graph().__init__()
+
+
+_fake: Optional[FakeGraphStore] = None
+
+
+def get_fake_graph() -> FakeGraphStore:
+    global _fake
+    if _fake is None:
+        _fake = FakeGraphStore()
+    return _fake
