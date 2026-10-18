@@ -11,8 +11,18 @@ import { formatJson, orUnrecorded, titleCase } from '../../lib/format'
  * Three things are deliberately always visible: the epistemic grade (a proposal is
  * `inferred`, never an observation), the score as a weighted breakdown rather than a
  * probability, and the caveats. An answer with no caveats should look suspicious.
+ *
+ * The card owns its own decision flow. `onDecide` is an optional notification for a
+ * caller that needs to react once a verdict lands -- clearing the set it came from,
+ * or re-running the query -- rather than for the card to delegate that control.
  */
-export function RecommendationCard({ recommendation }: { recommendation: Recommendation }) {
+export function RecommendationCard({
+  recommendation,
+  onDecide,
+}: {
+  recommendation: Recommendation
+  onDecide?: () => void
+}) {
   const decision = useRecommendationDecision()
   const [note, setNote] = useState('')
   const [showJson, setShowJson] = useState(false)
@@ -25,7 +35,7 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
       decision: value,
       decided_by: 'researcher',
       note: note || undefined,
-    })
+    }).then(() => onDecide?.())
   }
 
   return (

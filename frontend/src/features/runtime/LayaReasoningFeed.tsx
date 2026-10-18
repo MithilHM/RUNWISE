@@ -99,6 +99,17 @@ export function LayaReasoningFeed({ state, onSelectStep }: LayaReasoningFeedProp
   )
 }
 
+/**
+ * Distinct cited identifiers, order preserved.
+ *
+ * The evaluator legitimately cites the same subgraph node more than once in one
+ * decision. Rendering it twice is noise, and keying the list by the raw value
+ * produced duplicate React keys, which React reports as a real defect.
+ */
+function dedupe(paths: string[]): string[] {
+  return [...new Set(paths)]
+}
+
 function FeedCard({
   entry,
   metric,
@@ -206,7 +217,7 @@ function FeedCard({
               </p>
             ) : (
               <div className="mt-1 flex flex-wrap gap-1.5">
-                {decision.cited_graph_paths.map((path) => {
+                {dedupe(decision.cited_graph_paths).map((path) => {
                   const open = inspected[path]
                   return (
                     <span key={path} className="inline-flex flex-col">

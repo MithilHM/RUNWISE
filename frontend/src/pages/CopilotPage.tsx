@@ -14,7 +14,6 @@ import { useProject } from '../lib/projectContext'
 import { EmptyState, ErrorState } from '../components/States'
 import { AnswerEvidence, SeverityLegend } from '../features/copilot/AnswerEvidence'
 import { RecommendationCard } from '../features/copilot/RecommendationCard'
-import { formatNumber } from '../lib/format'
 
 const SUGGESTIONS = [
   'Which experiment performed best under comparable conditions?',
@@ -24,7 +23,7 @@ const SUGGESTIONS = [
 ]
 
 export function CopilotPage() {
-  const { projectId, project } = useProject()
+  const { projectId } = useProject()
   const [question, setQuestion] = useState('')
   const [budget, setBudget] = useState('2')
   const [answer, setAnswer] = useState<ResearchAnswer | null>(null)
@@ -433,7 +432,10 @@ export function CopilotPage() {
         <section className="space-y-3">
           <div className="panel-header">
             <h2 className="text-sm font-medium text-ink-100">
-              Proposals for objective {recommendationSet.objective}
+              Proposals within{' '}
+              {recommendationSet.compute_budget_gpu_hours
+                ? `${recommendationSet.compute_budget_gpu_hours} GPU-hours`
+                : 'budget'}
             </h2>
             <span className="text-xs text-ink-500">
               {recommendationSet.recommendations.length} candidate
