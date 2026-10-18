@@ -98,13 +98,13 @@ export function CopilotPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header and Track Badges */}
+      {/* Header and Capability Badges */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-medium text-ink-100">Research Copilot</h1>
             <span className="rounded bg-sky-950/70 border border-sky-600/40 px-2 py-0.5 text-[10px] font-mono text-sky-400">
-              Track 01 & 02 Ready
+              Graph Memory & MCP Ready
             </span>
           </div>
           <p className="text-xs text-ink-500">
@@ -136,7 +136,7 @@ export function CopilotPage() {
           <div className="flex items-center justify-between border-b border-ink-800 pb-2 mb-3">
             <h2 className="text-sm font-semibold text-ink-100 flex items-center gap-2">
               <span>🧠 FalkorDB 3-Tier Agent Memory</span>
-              <span className="text-[11px] font-mono text-ink-400">(Track 02: Episodic, Semantic, Procedural)</span>
+              <span className="text-[11px] font-mono text-ink-400">(Episodic, Semantic, Procedural)</span>
             </h2>
             <button type="button" className="text-xs text-ink-400 hover:text-ink-200" onClick={() => setShowMemory(false)}>
               ✕ Close
@@ -200,7 +200,7 @@ export function CopilotPage() {
           <div className="flex items-center justify-between border-b border-ink-800 pb-2 mb-3">
             <h2 className="text-sm font-semibold text-ink-100 flex items-center gap-2">
               <span>⚡ Model Context Protocol (MCP) Graph Tools</span>
-              <span className="text-[11px] font-mono text-ink-400">(Track 01: Tool Selection via MCP)</span>
+              <span className="text-[11px] font-mono text-ink-400">(Tool Selection via MCP)</span>
             </h2>
             <button type="button" className="text-xs text-ink-400 hover:text-ink-200" onClick={() => setShowMcpTools(false)}>
               ✕ Close

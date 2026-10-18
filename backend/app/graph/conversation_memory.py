@@ -1,6 +1,5 @@
 """
 Persistent Multi-Session Conversation Graph Memory for RUNWISE.
-Conforms strictly to Track 02 (Agent Memory and Coordination).
 
 Persists:
 - (:ChatSession {id, project_id, title, created_at, updated_at})

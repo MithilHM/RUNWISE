@@ -1,5 +1,5 @@
 """
-Tests for Model Context Protocol (MCP) server and endpoints (Track 01).
+Tests for Model Context Protocol (MCP) server and endpoints.
 """
 
 import pytest

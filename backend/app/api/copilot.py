@@ -719,7 +719,7 @@ def query_project(
 
 @router.get(
     "/projects/{project_id}/sessions",
-    summary="List persistent chat sessions for this project (Track 02)",
+    summary="List persistent chat sessions for this project",
     description="Retrieves persistent conversation sessions stored in FalkorDB.",
 )
 def list_project_sessions(
@@ -731,7 +731,7 @@ def list_project_sessions(
 @router.post(
     "/projects/{project_id}/sessions",
     status_code=201,
-    summary="Create a new persistent chat session (Track 02)",
+    summary="Create a new persistent chat session",
     description="Creates a new conversation session node in FalkorDB.",
 )
 def create_project_session(
@@ -744,7 +744,7 @@ def create_project_session(
 
 @router.get(
     "/projects/{project_id}/sessions/{session_id}/messages",
-    summary="Get persistent chat history for a session (Track 02)",
+    summary="Get persistent chat history for a session",
     description="Returns chronological message history and linked experiment citations from FalkorDB.",
 )
 def get_session_messages(
@@ -757,7 +757,7 @@ def get_session_messages(
 @router.post(
     "/projects/{project_id}/sessions/{session_id}/query",
     response_model=ResearchAnswer,
-    summary="Ask a question within a persistent session (Track 02)",
+    summary="Ask a question within a persistent session",
     description="Answers research question and writes both user question and grounded answer with citations into FalkorDB.",
 )
 def query_project_session(
@@ -799,7 +799,7 @@ def query_project_session(
 
 @router.get(
     "/projects/{project_id}/memory",
-    summary="Get 3-tier agent memory breakdown (Track 02)",
+    summary="Get 3-tier agent memory breakdown",
     description="Returns the full Episodic, Semantic, and Procedural memory breakdown from FalkorDB.",
 )
 def get_project_memory(

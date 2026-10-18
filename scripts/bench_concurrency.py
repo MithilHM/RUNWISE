@@ -1,5 +1,5 @@
 """
-High-Concurrency Benchmark for RUNWISE Graph Memory (Track 02).
+High-Concurrency Benchmark for RUNWISE Graph Memory.
 Simulates concurrent multi-agent read/write access to FalkorDB:
 - Concurrent lineage traversals
 - Concurrent regime similarity checks
@@ -66,7 +66,7 @@ async def worker_task(worker_id: int, num_ops: int, latencies: List[float]):
 
 async def run_benchmark(num_workers: int = 15, ops_per_worker: int = 10):
     print("=" * 65)
-    print(" RUNWISE High-Concurrency Agent Memory Benchmark (Track 02)")
+    print(" RUNWISE High-Concurrency Agent Memory Benchmark")
     print("=" * 65)
     print(f"Concurrent Workers: {num_workers}")
     print(f"Operations per Worker: {ops_per_worker}")
@@ -98,7 +98,7 @@ async def run_benchmark(num_workers: int = 15, ops_per_worker: int = 10):
 
     # Save summary report to docs/CONCURRENCY.md
     docs_path = os.path.join(BASE_DIR, "docs", "CONCURRENCY.md")
-    report = f"""# High-Concurrency Agent Memory Benchmark (Track 02)
+    report = f"""# High-Concurrency Agent Memory Benchmark
 
 **Test Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}  
 **Target:** Prove FalkorDB graph memory handles high-concurrency multi-agent reads and writes without contention or corruption.

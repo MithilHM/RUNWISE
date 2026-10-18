@@ -1,6 +1,5 @@
 """
 Hierarchical Agent Memory Service for RUNWISE.
-Conforms strictly to Track 02 (Agent Memory and Coordination).
 
 Provides structured access to:
 1. Episodic Memory: Historical experiment trials, outcomes, and failure subgraphs.

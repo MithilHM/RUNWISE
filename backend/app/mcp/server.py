@@ -1,6 +1,5 @@
 """
 Model Context Protocol (MCP) Server for RUNWISE.
-Conforms strictly to Track 01 (Agents That Act on Connected Data).
 
 Exposes FalkorDB graph algorithms and queries as standard MCP tools:
 - get_experiment_lineage: Multi-hop derivation and dataset version lineage

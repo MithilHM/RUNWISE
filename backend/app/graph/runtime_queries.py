@@ -416,7 +416,7 @@ class RuntimeGraphService:
         state: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Atomically records a multi-agent coordination handoff in FalkorDB (Track 02)."""
+        """Atomically records a multi-agent coordination handoff in FalkorDB."""
         now = datetime.now(timezone.utc).isoformat()
         handoff_id = f"hoff_{uuid.uuid4().hex[:8]}"
         meta_json = json.dumps(metadata or {})
@@ -478,7 +478,7 @@ class RuntimeGraphService:
         return handoff_record
 
     def get_agent_handoffs(self, run_id: str) -> List[Dict[str, Any]]:
-        """Retrieves chronological agent coordination handoffs for an execution run (Track 02)."""
+        """Retrieves chronological agent coordination handoffs for an execution run."""
         cypher = """
         MATCH (a1:Agent)-[h:HANDED_OFF {run_id: $run_id}]->(a2:Agent)
         RETURN h.id, a1.name, a2.name, h.step, h.state, h.metadata, h.timestamp

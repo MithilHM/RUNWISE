@@ -1,5 +1,5 @@
 """
-Tests for Persistent Conversation Memory, 3-Tier Memory Taxonomy, and Agent Handoffs (Track 02).
+Tests for Persistent Conversation Memory, 3-Tier Memory Taxonomy, and Agent Handoffs.
 """
 
 import pytest

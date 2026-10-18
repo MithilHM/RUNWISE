@@ -1,4 +1,4 @@
-# High-Concurrency Agent Memory Benchmark (Track 02)
+# High-Concurrency Agent Memory Benchmark
 
 **Test Date:** 2026-10-18 21:41:31  
 **Target:** Prove FalkorDB graph memory handles high-concurrency multi-agent reads and writes without contention or corruption.

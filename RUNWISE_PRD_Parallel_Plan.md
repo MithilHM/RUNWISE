@@ -1,7 +1,6 @@
 # RUNWISE — Implementation PRD and Four-Person Parallel Work Plan
 
 **Product:** RUNWISE — AI Research Experiment Copilot  
-**Primary hackathon track:** Agent Memory and Coordination  
 **Core technology:** FalkorDB, Python, FastAPI, React, TypeScript  
 **Delivery target:** Functional, reproducible hackathon MVP  
 **Collaboration model:** Four contributors working in the same Git branch, in any order

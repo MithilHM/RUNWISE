@@ -1,8 +1,5 @@
 # RUNWISE — AI Research Experiment Copilot
 
-> **FalkorDB Hackathon Submission**  
-> 🕵️ **Track 01: Agents That Act on Connected Data**  
-> 🤖 **Track 02: Agent Memory and Coordination**  
 > 🔗 **Repository:** [https://github.com/MithilHM/RUNWISE](https://github.com/MithilHM/RUNWISE)  
 > 📹 **Demo Video:** [Watch the 3-Minute Demo Video](https://youtu.be/your-demo-video-link) *(Demo script in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md))*  
 
@@ -11,18 +8,18 @@
 RUNWISE turns scattered ML experiment histories into a graph-backed research intelligence platform powered by **FalkorDB**, with an autonomous agent runtime (**Laya**), a **FastAPI** backend, and a **React + TypeScript** frontend.
 
 ### Its Defining Behaviors:
-1. **Multi-Hop Invalidation Cascade (Track 01):** When a dataset defect or leakage is reported, RUNWISE uses multi-hop Cypher traversals to invalidate directly affected runs and all **transitively derived lineage runs** — even runs trained on a different dataset version that inherited the flaw.
-2. **Persistent Multi-Agent Memory & Handoffs (Track 02):** Preserves 3 tiers of memory (**Episodic**, **Semantic**, **Procedural**) in FalkorDB, persists conversational history across sessions, and orchestrates atomic handoffs between planning, execution, and auditing agents with **sub-3ms latency** and **240+ ops/sec throughput**.
-3. **Model Context Protocol (MCP) Server (Track 01):** Graph algorithms and queries are exposed as standard MCP tools for universal tool selection by any AI agent (Claude Desktop, Cursor, Antigravity, or custom LLM agents).
+1. **Multi-Hop Invalidation Cascade:** When a dataset defect or leakage is reported, RUNWISE uses multi-hop Cypher traversals to invalidate directly affected runs and all **transitively derived lineage runs** — even runs trained on a different dataset version that inherited the flaw.
+2. **Persistent Multi-Agent Memory & Handoffs:** Preserves 3 tiers of memory (**Episodic**, **Semantic**, **Procedural**) in FalkorDB, persists conversational history across sessions, and orchestrates atomic handoffs between planning, execution, and auditing agents with **sub-3ms latency** and **240+ ops/sec throughput**.
+3. **Model Context Protocol (MCP) Server:** Graph algorithms and queries are exposed as standard MCP tools for universal tool selection by any AI agent (Claude Desktop, Cursor, Antigravity, or custom LLM agents).
 
 ---
 
-## 1. Tracks Entered & Key Capabilities
+## 1. System Capabilities & Architecture
 
-| Track | Key Hackathon Focus | How RUNWISE Satisfies It (10/10) |
+| Core Capability | Architectural Focus | How RUNWISE Delivers It |
 |---|---|---|
-| 🕵️ **Track 01: Agents That Act on Connected Data** | • Multi-hop reasoning<br>• Graph queries & algorithms as agent tools<br>• Tool selection through MCP<br>• Actions based on what graph shows<br>• Explainable results | • Traverses `(DatasetVersion)<-[:USES_DATASET_VERSION]-(Exp)-[:PARENT_OF*]->(DerivedExp)` to detect compromised lineage.<br>• Sandboxed ML worker automatically executes trials and mutates FalkorDB.<br>• Full Model Context Protocol (MCP) server (`scripts/run_mcp_server.py`) with 6 graph tools.<br>• 100% citation coverage and epistemic grades (`observed`, `inferred`, `disputed`). |
-| 🤖 **Track 02: Agent Memory and Coordination** | • Episodic, semantic, procedural memory<br>• Persistent conversation history<br>• Shared state & handoffs between agents<br>• High-concurrency reads and writes<br>• Separate memory per user/tenant | • Explicit 3-tier memory engine (`/api/v1/projects/{id}/memory`).<br>• Graph-backed conversation persistence (`(:ChatSession)-[:HAS_MESSAGE]->(:ChatMessage)`).<br>• Explicit agent handoff graph (`CandidatePlanner` ➔ `LayaEvaluator` ➔ `SandboxedWorker` ➔ `GraphAuditor`).<br>• Benchmark: **243.8 ops/sec throughput, P50 2.16ms latency, 0.0% error rate** ([`docs/CONCURRENCY.md`](docs/CONCURRENCY.md)).<br>• Scoped per `project_id` inside Cypher queries. |
+| 🕵️ **Agents Acting on Connected Graph Data** | • Multi-hop reasoning<br>• Graph queries & algorithms as agent tools<br>• Tool selection through MCP<br>• Actions based on graph topology<br>• Explainable results | • Traverses `(DatasetVersion)<-[:USES_DATASET_VERSION]-(Exp)-[:PARENT_OF*]->(DerivedExp)` to detect compromised lineage.<br>• Sandboxed ML worker automatically executes trials and mutates FalkorDB.<br>• Full Model Context Protocol (MCP) server (`scripts/run_mcp_server.py`) with 6 graph tools.<br>• 100% citation coverage and epistemic grades (`observed`, `inferred`, `disputed`). |
+| 🤖 **Agent Memory and Coordination** | • Episodic, semantic, procedural memory<br>• Persistent conversation history<br>• Shared state & handoffs between agents<br>• High-concurrency reads and writes<br>• Separate memory per user/tenant | • Explicit 3-tier memory engine (`/api/v1/projects/{id}/memory`).<br>• Graph-backed conversation persistence (`(:ChatSession)-[:HAS_MESSAGE]->(:ChatMessage)`).<br>• Explicit agent handoff graph (`CandidatePlanner` ➔ `LayaEvaluator` ➔ `SandboxedWorker` ➔ `GraphAuditor`).<br>• Benchmark: **243.8 ops/sec throughput, P50 2.16ms latency, 0.0% error rate** ([`docs/CONCURRENCY.md`](docs/CONCURRENCY.md)).<br>• Scoped per `project_id` inside Cypher queries. |
 
 ---
 
@@ -86,9 +83,9 @@ graph TD
 | `Metric` | `id` (indexed), `experiment_id` (indexed), `name`, `value` | Measured results (PR-AUC, Accuracy, Loss). |
 | `Hypothesis` | `id` (indexed), `text`, `status` | Scientific proposition tested by trials. |
 | `FailureReason` | `id`, `reason`, `category` | Failure subgraphs isolated to avoid repeating errors. |
-| `ChatSession` | `id` (indexed), `project_id` (indexed), `title`, `updated_at` | Persistent conversation session in FalkorDB (Track 02). |
-| `ChatMessage` | `id` (indexed), `session_id` (indexed), `role`, `content`, `timestamp` | Historical chat interaction with citation links (Track 02). |
-| `Agent` | `name` (indexed) | Autonomous agent nodes for coordination handoffs (Track 02). |
+| `ChatSession` | `id` (indexed), `project_id` (indexed), `title`, `updated_at` | Persistent conversation session in FalkorDB. |
+| `ChatMessage` | `id` (indexed), `session_id` (indexed), `role`, `content`, `timestamp` | Historical chat interaction with citation links. |
+| `Agent` | `name` (indexed) | Autonomous agent nodes for coordination handoffs. |
 | `Correction` | `id` (indexed), `source_id`, `description`, `status` | Invalidation audit record. |
 | `ReviewItem` | `id` (indexed), `reason`, `status`, `experiment_id` | Human-in-the-loop revalidation queue item. |
 
@@ -98,7 +95,7 @@ graph TD
 
 RUNWISE depends on targeted Cypher traversals implemented in `backend/app/graph/`:
 
-### 1. Multi-Hop Lineage Invalidation Cascade (Track 01)
+### 1. Multi-Hop Lineage Invalidation Cascade
 *Follows both direct dataset consumers and all transitive derived lineage runs:*
 ```cypher
 MATCH (d:DatasetVersion {id: $dataset_version_id})
@@ -110,7 +107,7 @@ RETURN collect(DISTINCT direct.id) AS direct_ids,
        collect(DISTINCT transitively_derived.id) AS derived_ids
 ```
 
-### 2. Multi-Hop Regime Discovery & Prior Evidence (Track 01 & 02)
+### 2. Multi-Hop Regime Discovery & Prior Evidence
 *Traverses cross-dataset regime similarities to recommend hyperparameters:*
 ```cypher
 MATCH (target:Dataset {name: $dataset_name})-[r:SIMILAR_REGIME]-(peer:Dataset)
@@ -127,7 +124,7 @@ ORDER BY r.similarity DESC, e.val_pr_auc DESC
 LIMIT 5
 ```
 
-### 3. Failure Subgraph Avoidance (Track 01 & 02)
+### 3. Failure Subgraph Avoidance
 *Identifies forbidden hyperparameter regimes that repeatedly failed in the past:*
 ```cypher
 MATCH (d:Dataset {name: $dataset_name})<-[:EVALUATED_ON]-(e:Experiment)-[:FAILED_UNDER]->(f:FailureReason)
@@ -138,7 +135,7 @@ RETURN e.id AS failed_experiment,
        e.max_depth AS invalid_depth
 ```
 
-### 4. Multi-Agent Coordination Handoffs (Track 02)
+### 4. Multi-Agent Coordination Handoffs
 *Atomically tracks state handoffs between autonomous agents:*
 ```cypher
 MERGE (a1:Agent {name: $from_agent})
@@ -154,7 +151,7 @@ CREATE (a1)-[h:HANDED_OFF {
 RETURN h.id, a1.name, a2.name, h.step, h.state, h.timestamp
 ```
 
-### 5. Persistent Chat Memory with Experiment Citations (Track 02)
+### 5. Persistent Chat Memory with Experiment Citations
 *Preserves conversation history linked to grounded graph records:*
 ```cypher
 MATCH (s:ChatSession {id: $session_id, project_id: $project_id})-[:HAS_MESSAGE]->(m:ChatMessage)
@@ -235,7 +232,7 @@ python -m pytest backend/tests -v
 cd frontend && npm test -- --run
 ```
 
-### 2. Run Model Context Protocol (MCP) Server & Test Client (Track 01)
+### 2. Run Model Context Protocol (MCP) Server & Test Client
 ```bash
 # Test MCP tool discovery and execution
 python scripts/test_mcp_client.py
@@ -244,7 +241,7 @@ python scripts/test_mcp_client.py
 python scripts/run_mcp_server.py
 ```
 
-### 3. Run High-Concurrency Benchmark (Track 02)
+### 3. Run High-Concurrency Benchmark
 ```bash
 python scripts/bench_concurrency.py
 ```
@@ -274,6 +271,6 @@ python scripts/evaluate.py
 - [x] **Public Source Code Repository:** [https://github.com/MithilHM/RUNWISE](https://github.com/MithilHM/RUNWISE)
 - [x] **Setup Instructions & Graph Data Model:** Detailed in Sections 2, 3, and 4 above.
 - [x] **Cypher Queries & Graph Algorithms:** Documented in Section 3 and [`docs/GRAPH_SCHEMA.md`](docs/GRAPH_SCHEMA.md).
-- [x] **Tracks Entered:** Track 01 (Agents That Act on Connected Data) & Track 02 (Agent Memory and Coordination).
+- [x] **Full-Stack Autonomous System:** End-to-end graph lineage, agent memory, and closed-loop optimization.
 - [x] **Local Execution & Verification:** Complete 1-click & manual setup instructions provided.
 - [x] **Demo Video Presentation Script:** Detailed 3-minute script in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).

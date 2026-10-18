@@ -141,7 +141,7 @@ async def run_runtime_ablation(
 @router.get(
     "/{run_id}/handoffs",
     summary="Get multi-agent coordination handoffs",
-    description="Returns chronological agent handoff transitions recorded in FalkorDB (Track 02).",
+    description="Returns chronological agent handoff transitions recorded in FalkorDB.",
 )
 async def get_runtime_handoffs(run_id: str) -> Dict[str, Any]:
     loop = get_runtime_loop(run_id)
