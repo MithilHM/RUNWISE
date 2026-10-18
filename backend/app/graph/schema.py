@@ -87,6 +87,10 @@ class RelType:
     CONCERNS = "CONCERNS"                       # (ReviewItem)-[:CONCERNS]->(Experiment)
     RAISED_BY = "RAISED_BY"                     # (ReviewItem)-[:RAISED_BY]->(Correction)
     REVIEWED_BY = "REVIEWED_BY"                 # (Experiment)-[:REVIEWED_BY]->(Researcher)
+    SIMILAR_REGIME = "SIMILAR_REGIME"           # (Dataset)-[:SIMILAR_REGIME]->(Dataset)
+    EVALUATED_ON = "EVALUATED_ON"               # (Experiment)-[:EVALUATED_ON]->(Dataset)
+    FAILED_UNDER = "FAILED_UNDER"               # (Experiment)-[:FAILED_UNDER]->(FailureReason)
+    DERIVED_FROM = "DERIVED_FROM"               # (Experiment)-[:DERIVED_FROM]->(Hypothesis)
 
 
 # ---------------------------------------------------------------------------

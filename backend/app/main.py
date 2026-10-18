@@ -22,6 +22,7 @@ from app.api.experiments import router as experiments_router
 from app.api.corrections import router as corrections_router
 from app.api.recommendations import router as recommendations_router
 from app.api.copilot import router as copilot_router
+from app.api.runtime import router as runtime_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("runwise")
@@ -165,3 +166,5 @@ app.include_router(experiments_router, prefix=settings.API_V1_STR)
 app.include_router(corrections_router, prefix=settings.API_V1_STR)
 app.include_router(recommendations_router, prefix=settings.API_V1_STR)
 app.include_router(copilot_router, prefix=settings.API_V1_STR)
+app.include_router(runtime_router, prefix="/api")
+app.include_router(runtime_router, prefix=settings.API_V1_STR)
