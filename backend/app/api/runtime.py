@@ -136,3 +136,21 @@ async def run_runtime_ablation(
 
     res = await loop.run_ablation(budget=budget)
     return res
+
+
+@router.get(
+    "/{run_id}/handoffs",
+    summary="Get multi-agent coordination handoffs",
+    description="Returns chronological agent handoff transitions recorded in FalkorDB (Track 02).",
+)
+async def get_runtime_handoffs(run_id: str) -> Dict[str, Any]:
+    loop = get_runtime_loop(run_id)
+    if not loop:
+        raise not_found("runtime_run", run_id)
+
+    handoffs = loop.graph_service.get_agent_handoffs(run_id)
+    return {
+        "run_id": run_id,
+        "handoffs": handoffs,
+        "count": len(handoffs),
+    }

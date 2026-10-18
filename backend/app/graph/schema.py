@@ -62,6 +62,9 @@ class NodeLabel:
     RECOMMENDATION = "Recommendation"
     REVIEW_ITEM = "ReviewItem"
     RESEARCHER = "Researcher"
+    CHAT_SESSION = "ChatSession"
+    CHAT_MESSAGE = "ChatMessage"
+    AGENT = "Agent"
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +94,10 @@ class RelType:
     EVALUATED_ON = "EVALUATED_ON"               # (Experiment)-[:EVALUATED_ON]->(Dataset)
     FAILED_UNDER = "FAILED_UNDER"               # (Experiment)-[:FAILED_UNDER]->(FailureReason)
     DERIVED_FROM = "DERIVED_FROM"               # (Experiment)-[:DERIVED_FROM]->(Hypothesis)
+    CONTAINS_SESSION = "CONTAINS_SESSION"       # (Project)-[:CONTAINS_SESSION]->(ChatSession)
+    HAS_MESSAGE = "HAS_MESSAGE"                 # (ChatSession)-[:HAS_MESSAGE]->(ChatMessage)
+    CITES_EXPERIMENT = "CITES_EXPERIMENT"       # (ChatMessage)-[:CITES_EXPERIMENT]->(Experiment)
+    HANDED_OFF = "HANDED_OFF"                   # (Agent)-[:HANDED_OFF]->(Agent)
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +217,11 @@ INDICES_TO_CREATE = [
     (NodeLabel.RECOMMENDATION, "id"),
     (NodeLabel.REVIEW_ITEM, "id"),
     (NodeLabel.RESEARCHER, "id"),
+    (NodeLabel.CHAT_SESSION, "id"),
+    (NodeLabel.CHAT_SESSION, "project_id"),
+    (NodeLabel.CHAT_MESSAGE, "id"),
+    (NodeLabel.CHAT_MESSAGE, "session_id"),
+    (NodeLabel.AGENT, "name"),
 ]
 
 # Identity properties, i.e. the ones a uniqueness constraint would cover.

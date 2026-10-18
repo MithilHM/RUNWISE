@@ -157,3 +157,52 @@ export const useResolveReviewItem = () => {
     },
   })
 }
+
+export const useSessions = (projectId: string | null) =>
+  useQuery({
+    queryKey: ['sessions', projectId],
+    queryFn: () => api.listSessions(projectId as string),
+    enabled: Boolean(projectId),
+  })
+
+export const useCreateSession = (projectId: string | null) => {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (title?: string) => api.createSession(projectId as string, title),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sessions', projectId] })
+    },
+  })
+}
+
+export const useSessionMessages = (projectId: string | null, sessionId: string | null) =>
+  useQuery({
+    queryKey: ['sessionMessages', projectId, sessionId],
+    queryFn: () => api.getSessionMessages(projectId as string, sessionId as string),
+    enabled: Boolean(projectId && sessionId),
+  })
+
+export const useQuerySession = (projectId: string | null, sessionId: string | null) => {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { question: string; compute_budget_gpu_hours?: number; max_recommendations?: number }) =>
+      api.querySession(projectId as string, sessionId as string, payload),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sessionMessages', projectId, sessionId] })
+      void client.invalidateQueries({ queryKey: ['sessions', projectId] })
+    },
+  })
+}
+
+export const useMemorySummary = (projectId: string | null) =>
+  useQuery({
+    queryKey: ['memorySummary', projectId],
+    queryFn: () => api.getMemorySummary(projectId as string),
+    enabled: Boolean(projectId),
+  })
+
+export const useMcpTools = () =>
+  useQuery({
+    queryKey: ['mcpTools'],
+    queryFn: api.getMcpTools,
+  })

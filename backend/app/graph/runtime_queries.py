@@ -407,6 +407,111 @@ class RuntimeGraphService:
         delta = {"nodes_added": nodes_added, "edges_added": edges_added}
         return delta
 
+    def record_agent_handoff(
+        self,
+        from_agent: str,
+        to_agent: str,
+        run_id: str,
+        step: int,
+        state: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Atomically records a multi-agent coordination handoff in FalkorDB (Track 02)."""
+        now = datetime.now(timezone.utc).isoformat()
+        handoff_id = f"hoff_{uuid.uuid4().hex[:8]}"
+        meta_json = json.dumps(metadata or {})
+
+        cypher = """
+        MERGE (a1:Agent {name: $from_agent})
+        MERGE (a2:Agent {name: $to_agent})
+        CREATE (a1)-[h:HANDED_OFF {
+            id: $handoff_id,
+            run_id: $run_id,
+            step: $step,
+            state: $state,
+            metadata: $metadata,
+            timestamp: $now
+        }]->(a2)
+        RETURN h.id, a1.name, a2.name, h.step, h.state, h.timestamp
+        """
+        try:
+            res = self.client.execute_query(
+                cypher,
+                {
+                    "from_agent": from_agent,
+                    "to_agent": to_agent,
+                    "handoff_id": handoff_id,
+                    "run_id": run_id,
+                    "step": step,
+                    "state": state,
+                    "metadata": meta_json,
+                    "now": now,
+                },
+            )
+            if res.result_set:
+                r = res.result_set[0]
+                return {
+                    "id": r[0],
+                    "from_agent": r[1],
+                    "to_agent": r[2],
+                    "run_id": run_id,
+                    "step": r[3],
+                    "state": r[4],
+                    "timestamp": r[5],
+                    "metadata": metadata or {},
+                }
+        except Exception as e:
+            logger.debug(f"Agent handoff recording fallback: {e}")
+
+        # In-memory tracking fallback
+        handoff_record = {
+            "id": handoff_id,
+            "from_agent": from_agent,
+            "to_agent": to_agent,
+            "run_id": run_id,
+            "step": step,
+            "state": state,
+            "timestamp": now,
+            "metadata": metadata or {},
+        }
+        self._in_memory_edges.append(handoff_record)
+        return handoff_record
+
+    def get_agent_handoffs(self, run_id: str) -> List[Dict[str, Any]]:
+        """Retrieves chronological agent coordination handoffs for an execution run (Track 02)."""
+        cypher = """
+        MATCH (a1:Agent)-[h:HANDED_OFF {run_id: $run_id}]->(a2:Agent)
+        RETURN h.id, a1.name, a2.name, h.step, h.state, h.metadata, h.timestamp
+        ORDER BY h.timestamp ASC
+        """
+        try:
+            res = self.client.execute_query(cypher, {"run_id": run_id})
+            handoffs = []
+            for r in res.result_set:
+                meta = {}
+                if r[5]:
+                    try:
+                        meta = json.loads(r[5])
+                    except Exception:
+                        pass
+                handoffs.append({
+                    "id": r[0],
+                    "from_agent": r[1],
+                    "to_agent": r[2],
+                    "run_id": run_id,
+                    "step": r[3],
+                    "state": r[4],
+                    "metadata": meta,
+                    "timestamp": r[6],
+                })
+            if handoffs:
+                return handoffs
+        except Exception as e:
+            logger.debug(f"Failed to query agent handoffs from graph: {e}")
+
+        # In-memory fallback
+        return [h for h in self._in_memory_edges if h.get("run_id") == run_id]
+
 
 # Global default instance
 runtime_graph_service = RuntimeGraphService()

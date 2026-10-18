@@ -150,8 +150,20 @@ class RuntimeLoop:
                 )
 
                 # ---------------------------------------------------------
-                # 3. LAYA_EVALUATING
+                # 3. LAYA_EVALUATING (Handoff: CandidatePlanner -> LayaEvaluator)
                 # ---------------------------------------------------------
+                try:
+                    self.graph_service.record_agent_handoff(
+                        from_agent="CandidatePlanner",
+                        to_agent="LayaEvaluator",
+                        run_id=self.run_id,
+                        step=step,
+                        state="CANDIDATE_EVALUATION",
+                        metadata={"candidate_count": len(candidates)},
+                    )
+                except Exception:
+                    pass
+
                 decision = self.laya.evaluate_candidates(
                     objective=self.objective,
                     candidates=candidates,
@@ -177,8 +189,20 @@ class RuntimeLoop:
                 )
 
                 # ---------------------------------------------------------
-                # 4. TRAINING_WORKER
+                # 4. TRAINING_WORKER (Handoff: LayaEvaluator -> SandboxedWorker)
                 # ---------------------------------------------------------
+                try:
+                    self.graph_service.record_agent_handoff(
+                        from_agent="LayaEvaluator",
+                        to_agent="SandboxedWorker",
+                        run_id=self.run_id,
+                        step=step,
+                        state="EXECUTING_TRIAL",
+                        metadata={"candidate_id": chosen_cand.candidate_id, "strategy": chosen_cand.strategy},
+                    )
+                except Exception:
+                    pass
+
                 trial_res = await self.worker.execute_trial(
                     candidate=chosen_cand,
                     target_metric=self.objective.target_metric,
@@ -206,8 +230,19 @@ class RuntimeLoop:
                 )
 
                 # ---------------------------------------------------------
-                # 5. MUTATING_GRAPH
+                # 5. MUTATING_GRAPH (Handoff: SandboxedWorker -> GraphAuditor)
                 # ---------------------------------------------------------
+                try:
+                    self.graph_service.record_agent_handoff(
+                        from_agent="SandboxedWorker",
+                        to_agent="GraphAuditor",
+                        run_id=self.run_id,
+                        step=step,
+                        state="GRAPH_MUTATION",
+                        metadata={"trial_id": trial_res.trial_id, "status": trial_res.status},
+                    )
+                except Exception:
+                    pass
                 delta = self.graph_service.mutate_runtime_trial(
                     trial_result=trial_res,
                     dataset_name=self.objective.dataset_name,

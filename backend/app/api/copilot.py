@@ -28,9 +28,9 @@ An LLM is never asked what happened, only how to phrase what the engine found.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Body
 
 from app.api.deps import ComparabilityDep, EngineDep, GraphDep, WriterDep
 from app.models.contracts import (
@@ -57,6 +57,11 @@ from app.services.recommendations import (
     RecommendationEngine,
     parse_objective,
 )
+
+from pydantic import BaseModel, Field
+
+from app.graph.conversation_memory import conversation_memory
+from app.services.memory_service import memory_service
 
 # Mounted by ``app/main.py`` under ``settings.API_V1_STR``; see the note in
 # ``app/api/recommendations.py``.
@@ -655,6 +660,13 @@ def _claim_about_withheld(
 # ---------------------------------------------------------------------------
 
 
+class CreateSessionRequest(BaseModel):
+    title: Optional[str] = Field(None, description="Optional title for the research conversation session")
+
+
+CreateSessionRequest.model_rebuild()
+
+
 @router.post(
     "/projects/{project_id}/query",
     response_model=ResearchAnswer,
@@ -677,4 +689,120 @@ def query_project(
     service = ResearchQueryService(
         graph, engine=engine, comparability=comparability, writer=writer
     )
-    return service.answer(project_id, body)
+    answer = service.answer(project_id, body)
+
+    # Persist in default session for project memory
+    try:
+        sessions = conversation_memory.list_sessions(project_id)
+        default_sess = sessions[0] if sessions else conversation_memory.create_session(project_id, "Default Copilot Session")
+        conversation_memory.add_message(
+            project_id=project_id,
+            session_id=default_sess["id"],
+            role="user",
+            content=body.question,
+        )
+        citation_ids = answer.grounding.cited_experiment_ids if answer.grounding else []
+        conversation_memory.add_message(
+            project_id=project_id,
+            session_id=default_sess["id"],
+            role="assistant",
+            content=answer.answer,
+            mode=answer.mode.value if hasattr(answer.mode, "value") else str(answer.mode),
+            llm_used=answer.llm_used,
+            citation_ids=citation_ids,
+        )
+    except Exception:
+        pass
+
+    return answer
+
+
+@router.get(
+    "/projects/{project_id}/sessions",
+    summary="List persistent chat sessions for this project (Track 02)",
+    description="Retrieves persistent conversation sessions stored in FalkorDB.",
+)
+def list_project_sessions(
+    project_id: Annotated[str, Path(min_length=1)],
+) -> List[Dict[str, Any]]:
+    return conversation_memory.list_sessions(project_id)
+
+
+@router.post(
+    "/projects/{project_id}/sessions",
+    status_code=201,
+    summary="Create a new persistent chat session (Track 02)",
+    description="Creates a new conversation session node in FalkorDB.",
+)
+def create_project_session(
+    project_id: Annotated[str, Path(min_length=1)],
+    body: Optional[CreateSessionRequest] = Body(None),
+) -> Dict[str, Any]:
+    title = body.title if body else None
+    return conversation_memory.create_session(project_id, title=title)
+
+
+@router.get(
+    "/projects/{project_id}/sessions/{session_id}/messages",
+    summary="Get persistent chat history for a session (Track 02)",
+    description="Returns chronological message history and linked experiment citations from FalkorDB.",
+)
+def get_session_messages(
+    project_id: Annotated[str, Path(min_length=1)],
+    session_id: Annotated[str, Path(min_length=1)],
+) -> List[Dict[str, Any]]:
+    return conversation_memory.get_history(project_id, session_id)
+
+
+@router.post(
+    "/projects/{project_id}/sessions/{session_id}/query",
+    response_model=ResearchAnswer,
+    summary="Ask a question within a persistent session (Track 02)",
+    description="Answers research question and writes both user question and grounded answer with citations into FalkorDB.",
+)
+def query_project_session(
+    graph: GraphDep,
+    engine: EngineDep,
+    comparability: ComparabilityDep,
+    writer: WriterDep,
+    body: QueryRequest,
+    project_id: Annotated[str, Path(min_length=1)],
+    session_id: Annotated[str, Path(min_length=1)],
+) -> ResearchAnswer:
+    service = ResearchQueryService(
+        graph, engine=engine, comparability=comparability, writer=writer
+    )
+    answer = service.answer(project_id, body)
+
+    try:
+        conversation_memory.add_message(
+            project_id=project_id,
+            session_id=session_id,
+            role="user",
+            content=body.question,
+        )
+        citation_ids = answer.grounding.cited_experiment_ids if answer.grounding else []
+        conversation_memory.add_message(
+            project_id=project_id,
+            session_id=session_id,
+            role="assistant",
+            content=answer.answer,
+            mode=answer.mode.value if hasattr(answer.mode, "value") else str(answer.mode),
+            llm_used=answer.llm_used,
+            citation_ids=citation_ids,
+        )
+    except Exception:
+        pass
+
+    return answer
+
+
+@router.get(
+    "/projects/{project_id}/memory",
+    summary="Get 3-tier agent memory breakdown (Track 02)",
+    description="Returns the full Episodic, Semantic, and Procedural memory breakdown from FalkorDB.",
+)
+def get_project_memory(
+    project_id: Annotated[str, Path(min_length=1)],
+) -> Dict[str, Any]:
+    return memory_service.get_memory_breakdown(project_id)

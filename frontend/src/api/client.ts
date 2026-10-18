@@ -243,4 +243,53 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  listSessions: (projectId: string) =>
+    request<Array<{ id: string; project_id: string; title: string; created_at: string; updated_at: string }>>(
+      `/api/v1/projects/${projectId}/sessions`,
+    ),
+
+  createSession: (projectId: string, title?: string) =>
+    request<{ id: string; project_id: string; title: string; created_at: string; updated_at: string }>(
+      `/api/v1/projects/${projectId}/sessions`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title }),
+      },
+    ),
+
+  getSessionMessages: (projectId: string, sessionId: string) =>
+    request<
+      Array<{
+        id: string;
+        session_id: string;
+        role: string;
+        content: string;
+        mode: string;
+        llm_used: boolean;
+        timestamp: string;
+        citation_ids: string[];
+      }>
+    >(`/api/v1/projects/${projectId}/sessions/${sessionId}/messages`),
+
+  querySession: (
+    projectId: string,
+    sessionId: string,
+    payload: { question: string; compute_budget_gpu_hours?: number; max_recommendations?: number },
+  ) =>
+    request<ResearchAnswer>(`/api/v1/projects/${projectId}/sessions/${sessionId}/query`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getMemorySummary: (projectId: string) =>
+    request<{
+      project_id: string;
+      episodic: Record<string, unknown>;
+      semantic: Record<string, unknown>;
+      procedural: Record<string, unknown>;
+      summary: { total_episodic_records: number; semantic_concepts: number; procedural_rules: number };
+    }>(`/api/v1/projects/${projectId}/memory`),
+
+  getMcpTools: () => request<{ tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }>('/api/v1/mcp/tools'),
 }
