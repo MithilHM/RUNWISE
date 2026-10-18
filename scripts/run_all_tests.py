@@ -11,6 +11,11 @@ import os
 import subprocess
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def main() -> int:
     backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))

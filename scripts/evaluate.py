@@ -14,6 +14,11 @@ import os
 import sys
 import time
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Ensure backend and repo root are on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -110,6 +115,7 @@ def build_experiment_records(raw_dicts: list[dict], project_id: str) -> list[Exp
             parent_experiment_id=d.get("parent_experiment_id"),
             status=ExperimentStatus.COMPLETED,
             compute_cost_gpu_hours=float(d.get("compute_cost_gpu_hours", 0.8)),
+            random_seed=d.get("random_seed"),
             configuration=d.get("configuration") or {},
             metrics=metrics,
         )
@@ -148,17 +154,46 @@ def run_benchmark() -> dict:
     # Duplicate rejection: 100% rejection on second attempt with same IDs
     duplicate_rejection_rate = 100.0
 
-    # --- Metric 3: Comparability Accuracy ---
+    # --- Metric 3: Comparability Accuracy (Evaluated against Ground-Truth Pairs) ---
+    ground_truth_pairs = [
+        # (left, right, expected_statuses, label)
+        (
+            graph_service.get_experiment("exp_001"),
+            graph_service.get_experiment("exp_002"),
+            {ComparabilityStatus.COMPARABLE, ComparabilityStatus.COMPARABLE_WITH_CAVEATS},
+            "exp_001 vs exp_002 (controlled variation: single-variable max_depth)",
+        ),
+        (
+            graph_service.get_experiment("exp_001"),
+            graph_service.get_experiment("exp_001"),
+            {ComparabilityStatus.COMPARABLE},
+            "exp_001 vs exp_001 (identical run baseline)",
+        ),
+        (
+            graph_service.get_experiment("exp_001"),
+            graph_service.get_experiment("exp_control"),
+            {ComparabilityStatus.NOT_COMPARABLE},
+            "exp_001 vs exp_control (different dataset & model family)",
+        ),
+    ]
+    # Cross-dataset negative check
+    other_run = next((r for r in records if r.dataset_id != "tabular_fraud"), None)
+    if other_run:
+        ground_truth_pairs.append((
+            graph_service.get_experiment("exp_001"),
+            other_run,
+            {ComparabilityStatus.NOT_COMPARABLE},
+            f"exp_001 vs {other_run.id} (different dataset)",
+        ))
+
     comp_checks = 0
     comp_correct = 0
-    for r in records:
-        if r.parent_experiment_id and r.parent_experiment_id in graph_service.experiments:
-            parent = graph_service.get_experiment(r.parent_experiment_id)
-            if parent:
-                assessment = comp_engine.assess(parent, r)
-                comp_checks += 1
-                if assessment.status in {ComparabilityStatus.COMPARABLE, ComparabilityStatus.COMPARABLE_WITH_CAVEATS}:
-                    comp_correct += 1
+    for left, right, expected_statuses, _ in ground_truth_pairs:
+        if left and right:
+            assessment = comp_engine.assess(left, right)
+            comp_checks += 1
+            if assessment.status in expected_statuses:
+                comp_correct += 1
     comparability_acc = (comp_correct / comp_checks * 100.0) if comp_checks else 100.0
 
     # --- Metric 4, 7, 9: Budget Compliance & Citation Coverage ---

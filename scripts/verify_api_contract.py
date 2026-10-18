@@ -21,6 +21,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 ROOT = Path(__file__).resolve().parent.parent
 TYPES_PATH = ROOT / "frontend" / "src" / "api" / "types.ts"
 DEFAULT_OPENAPI = "http://127.0.0.1:8000/openapi.json"

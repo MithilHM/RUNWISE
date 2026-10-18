@@ -75,16 +75,17 @@ def get_demo_lineage_scenario(project_id: str = "project_demo") -> List[Dict[str
             "random_seed": 42,
             "configuration": {
                 "max_depth": 6,
-                "learning_rate": 0.05,
-                "n_estimators": 200,
-                "subsample": 0.85
+                "learning_rate": 0.1,
+                "n_estimators": 100,
+                "subsample": 0.8
             },
             "metrics": [
                 {
                     "name": "validation_accuracy",
                     "value": 0.938,
                     "direction": "maximize",
-                    "evaluation_split": "validation"
+                    "evaluation_split": "validation",
+                    "evaluation_protocol": "stratified_5fold"
                 },
                 {
                     "name": "val_loss",
@@ -93,7 +94,7 @@ def get_demo_lineage_scenario(project_id: str = "project_demo") -> List[Dict[str
                     "evaluation_split": "validation"
                 }
             ],
-            "description": "Tuned tree depth based on exp_001 baseline"
+            "description": "Tuned tree depth based on exp_001 baseline (single-variable change max_depth: 4 -> 6)"
         },
         {
             "id": "exp_003",
