@@ -50,7 +50,7 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 /** Normalise anything the server might return into the canonical detail list. */
 function toDetails(status: number, body: unknown): ErrorDetail[] {
@@ -75,7 +75,11 @@ function toDetails(status: number, body: unknown): ErrorDetail[] {
   return [{ code: 'error', message: `Request failed with status ${status}`, field: null }]
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * Exported so a module with a non-JSON transport (the runtime SSE reader in
+ * `runtimeApi`) shares one base URL and one error shape instead of forking them.
+ */
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
@@ -116,7 +120,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return parsed as T
 }
 
-function query(params: Record<string, string | number | boolean | undefined | null>): string {
+/** Build a query string, dropping absent parameters rather than sending `undefined`. */
+export function query(params: Record<string, string | number | boolean | undefined | null>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === '') continue

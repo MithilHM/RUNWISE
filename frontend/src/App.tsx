@@ -8,8 +8,10 @@ import { WorkspacePage } from './pages/WorkspacePage'
 
 // The lineage screen pulls in the force-graph renderer and the copilot pulls in the
 // chart stack. Neither is needed to open the workspace, so both are split out.
+// The runtime screen ships the SSE reader and the execution-tree renderer with it.
 const CopilotPage = lazy(() => import('./pages/CopilotPage').then((m) => ({ default: m.CopilotPage })))
 const LineagePage = lazy(() => import('./pages/LineagePage').then((m) => ({ default: m.LineagePage })))
+const RuntimePage = lazy(() => import('./pages/RuntimePage').then((m) => ({ default: m.RuntimePage })))
 
 export default function App() {
   return (
@@ -31,6 +33,14 @@ export default function App() {
             element={
               <Suspense fallback={<LoadingState label="Loading graph" />}>
                 <LineagePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="runtime"
+            element={
+              <Suspense fallback={<LoadingState label="Loading autonomous runtime" />}>
+                <RuntimePage />
               </Suspense>
             }
           />

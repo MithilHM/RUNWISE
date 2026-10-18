@@ -8,6 +8,7 @@ const NAV = [
   { to: '/workspace', label: 'Experiment workspace', hint: 'Screen A: All Runs Table' },
   { to: '/copilot', label: 'Research copilot', hint: 'Screen B: Custom Queries' },
   { to: '/lineage', label: 'Lineage & impact', hint: 'Screen C: Raw Graph & Queue' },
+  { to: '/runtime', label: '⚙ Autonomous Runtime', hint: 'Screen D: Live Execution Tree & Ablation' },
 ]
 
 export function AppShell() {
